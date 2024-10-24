@@ -21,11 +21,11 @@ pub struct MultipleEmbeds;
 pub struct Duplicates;
 
 /// This example will actually run in rust docs
-#[doc = docify::embed_run!("examples/samples.rs", runnable)]
+#[doc = docify_clone::embed_run!("examples/samples.rs", runnable)]
 pub struct Runnable;
 
 /// This example runs a test
-#[doc = docify::embed_run!("examples/samples.rs", test_with_custom_name)]
+#[doc = docify_clone::embed_run!("examples/samples.rs", test_with_custom_name)]
 pub struct RunnableTest;
 
 /// This example has comments
@@ -71,7 +71,7 @@ pub struct LiamExample9;
 pub struct ExportContentImpl;
 
 /// This demonstrates using `#[docify_clone::export_content]` on a trait
-#[doc = docify::embed_run!("examples/samples.rs", SomeOtherTrait)]
+#[doc = docify_clone::embed_run!("examples/samples.rs", SomeOtherTrait)]
 pub struct ExportContentTrait;
 
 /// This demonstrates using `#[docify_clone::export_content]` on an fn

@@ -343,7 +343,7 @@ impl AttributedItem for TraitItem {
 }
 
 /// Marks an item for export, making it available for embedding as a rust doc example via
-/// [`docify_clone::embed!(..)`](`macro@embed`) or [`docify::embed_run!(..)`](`macro@embed_run`).
+/// [`docify_clone::embed!(..)`](`macro@embed`) or [`docify_clone::embed_run!(..)`](`macro@embed_run`).
 ///
 /// By default, you can just call the attribute with no arguments like the following:
 /// ```ignore
@@ -377,7 +377,7 @@ impl AttributedItem for TraitItem {
 /// ```
 ///
 /// When you go to [`docify_clone::embed!(..)`](`macro@embed`) or
-/// [`docify::embed_run!(..)`](`macro@embed_run`) such an item, you must refer to it by
+/// [`docify_clone::embed_run!(..)`](`macro@embed_run`) such an item, you must refer to it by
 /// `SomeName` (in this case), or whatever name you provided to `#[docify_clone::export]`.
 ///
 /// There is no guard to prevent duplicate export names in the same file, and export names are
@@ -392,7 +392,7 @@ impl AttributedItem for TraitItem {
 ///
 /// Note that if you wish to embed an _entire_ file, you don't need `#[docify_clone::export]` at all
 /// and can instead specify just a path to [`docify_clone::embed!(..)`](`macro@embed`) or
-/// [`docify::embed_run!(..)`](`macro@embed_run`).
+/// [`docify_clone::embed_run!(..)`](`macro@embed_run`).
 #[proc_macro_attribute]
 pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
     match export_internal(attr, tokens) {
@@ -485,7 +485,7 @@ fn export_internal(
 ///
 /// Which will expand to the `my_example` item in `path/to/file.rs` being embedded in a rust
 /// doc example marked with `ignore`. If you want to have your example actually run in rust
-/// docs as well, you should use [`docify::embed_run!(..)`](`macro@embed_run`).
+/// docs as well, you should use [`docify_clone::embed_run!(..)`](`macro@embed_run`).
 ///
 /// ### Arguments
 /// - `source_path`: the file path (relative to the current crate root) that contains the item
@@ -535,7 +535,7 @@ fn export_internal(
 /// since they are typically already functioning examples or tests elsewhere in the project,
 /// and so they do not need to be run as well in the context where they are being embedded. If
 /// for whatever reason you _do_ want to also run an embedded example as a doc example, you can
-/// use [`docify::embed_run!(..)`](`macro@embed_run`) which removes the `ignore` tag from the
+/// use [`docify_clone::embed_run!(..)`](`macro@embed_run`) which removes the `ignore` tag from the
 /// generated example but otherwise functions exactly like `#[docify_clone::embed!(..)]` in every
 /// way.
 ///
