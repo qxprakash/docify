@@ -27,9 +27,8 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use toml::{Table, Value};
 use walkdir::WalkDir;
 // use reqwest::blocking::Client;
-use syn::parse_macro_input;
 use std::sync::OnceLock;
-
+use syn::parse_macro_input;
 use syn::parse::{Parse, ParseStream};
 
 use git2::Repository;
@@ -1324,18 +1323,12 @@ pub fn set_git_fallback(input: TokenStream) -> TokenStream {
     let git_url = input.git_url.value();
     let base_path = input.base_path.value();
 
-    GIT_FALLBACK.set((git_url.to_string(), base_path.to_string())).unwrap();
+    GIT_FALLBACK
+        .set((git_url.to_string(), base_path.to_string()))
+        .unwrap();
 
     TokenStream::new()
 }
-
-
-
-
-
-
-
-
 
 fn try_git_fallback(relative_path: &str) -> Option<String> {
     GIT_FALLBACK.get().and_then(|(git_url, base_path)| {
