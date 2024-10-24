@@ -9,7 +9,7 @@ authors = ["qxprakash"]
 license = "MIT"
 keywords = ["docify_fork", "compile-time", "macro", "docs", "embed"]
 categories = ["development-tools", "development-tools::procedural-macro-helpers", "rust-patterns"]
-repository = "https://github.com/sam0x17/docify"
+repository = "https://github.com/qxprakash/docify_fork"
 description = "Docify allows you to live-embed at compile time pieces of code from throughout your project as rust doc examples."
 
 [dependencies]
