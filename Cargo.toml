@@ -2,7 +2,7 @@
 members = ["macros"]
 
 [package]
-name = "docify"
+name = "docify_clone"
 version = "0.0.1"
 edition = "2021"
 authors = ["qxprakash"]
