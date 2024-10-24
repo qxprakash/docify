@@ -26,6 +26,25 @@ use syn::{
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use toml::{Table, Value};
 use walkdir::WalkDir;
+// use reqwest::blocking::Client;
+use syn::parse_macro_input;
+use std::sync::OnceLock;
+
+use syn::parse::{Parse, ParseStream};
+
+struct GitFallbackArgs {
+    git_url: LitStr,
+    base_path: LitStr,
+}
+
+impl Parse for GitFallbackArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let git_url = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let base_path = input.parse()?;
+        Ok(GitFallbackArgs { git_url, base_path })
+    }
+}
 
 fn line_start_position<S: AsRef<str>>(source: S, pos: usize) -> usize {
     let source = source.as_ref();
@@ -943,7 +962,6 @@ fn source_excerpt<'a, T: ToTokens>(
 /// Inner version of [`embed_internal`] that just returns the result as a [`String`].
 fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<String> {
     let args = parse2::<EmbedArgs>(tokens.into())?;
-    // return blank result if we can't properly resolve `caller_crate_root`
     let Some(root) = caller_crate_root() else {
         return Ok(String::from(""));
     };
@@ -951,13 +969,18 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
     let source_code = match fs::read_to_string(&file_path) {
         Ok(src) => src,
         Err(_) => {
-            return Err(Error::new(
-                args.file_path.span(),
-                format!(
-                    "Could not read the specified path '{}'.",
-                    file_path.display(),
-                ),
-            ))
+            // Try git fallback
+            if let Some(fallback_content) = try_git_fallback(&args.file_path.value()) {
+                fallback_content
+            } else {
+                return Err(Error::new(
+                    args.file_path.span(),
+                    format!(
+                        "Could not read the specified path '{}' and git fallback failed.",
+                        file_path.display(),
+                    ),
+                ));
+            }
         }
     };
     let parsed = source_code.parse::<TokenStream2>()?;
@@ -1277,7 +1300,7 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
 /// compile_markdown!("README.docify.md", "README.md");
 /// ```
 ///
-/// This way the `README.md` will not regenerate itself every time a user of your crate runs
+/// This way the `README.md will not regenerate itself every time a user of your crate runs
 /// `cargo doc` unless they explicitly enable the `generate-readme` feature for your crate.
 ///
 /// Another convention we encourage, shown above, is naming template files `foo.docify.md` so
@@ -1290,5 +1313,45 @@ pub fn compile_markdown(tokens: TokenStream) -> TokenStream {
     }
 }
 
+static GIT_FALLBACK: OnceLock<(String, String)> = OnceLock::new();
+
+#[proc_macro]
+pub fn set_git_fallback(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as GitFallbackArgs);
+    let git_url = input.git_url.value();
+    let base_path = input.base_path.value();
+
+    GIT_FALLBACK.set((git_url.to_string(), base_path.to_string())).unwrap();
+
+    TokenStream::new()
+}
+
+fn try_git_fallback(relative_path: &str) -> Option<String> {
+    GIT_FALLBACK.get().and_then(|(git_url, base_path)| {
+        println!("relative_path in try_git_fallback: {}", relative_path);
+        println!("base_path in try_git_fallback: {}", base_path);
+        println!("git_url in try_git_fallback: {}", git_url);
+
+        // let full_path = format!("{}/{}", base_path, relative_path);
+        let url = format!("https://raw.githubusercontent.com/{}/refs/heads/master/{}", git_url, base_path);
+
+        // println!("full_path in try_git_fallback: {}", full_path);
+        println!("url in try_git_fallback: {}", url);
+
+        let client = reqwest::blocking::Client::new();
+        match client.get(&url).send() {
+            Ok(response) if response.status().is_success() => {
+                match response.text() {
+                    Ok(text) => {
+                        println!("Response received: {}", text);
+                        Some(text)
+                    },
+                    Err(_) => None,
+                }
+            },
+            _ => None,
+        }
+    })
+}
 #[cfg(test)]
 mod tests;

@@ -75,6 +75,7 @@
 #![no_std]
 
 pub use docify_macros::*;
+pub use docify_macros::set_git_fallback;
 
 #[cfg(all(doc, feature = "generate-readme"))]
 compile_markdown!("README.docify.md", "README.md");
