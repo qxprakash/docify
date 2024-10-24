@@ -22,4 +22,6 @@ common-path = "1"
 termcolor = "1"
 once_cell = "1"
 toml = "0.8"
+git2 = "0.13"
+tempdir = "0.3"
 reqwest = { version = "0.11", features = ["blocking"] }

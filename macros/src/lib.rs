@@ -32,6 +32,9 @@ use std::sync::OnceLock;
 
 use syn::parse::{Parse, ParseStream};
 
+use git2::Repository;
+use tempdir::TempDir;
+
 struct GitFallbackArgs {
     git_url: LitStr,
     base_path: LitStr,
@@ -1326,31 +1329,43 @@ pub fn set_git_fallback(input: TokenStream) -> TokenStream {
     TokenStream::new()
 }
 
+
+
+
+
+
+
+
+
 fn try_git_fallback(relative_path: &str) -> Option<String> {
     GIT_FALLBACK.get().and_then(|(git_url, base_path)| {
         println!("relative_path in try_git_fallback: {}", relative_path);
         println!("base_path in try_git_fallback: {}", base_path);
         println!("git_url in try_git_fallback: {}", git_url);
 
-        // let full_path = format!("{}/{}", base_path, relative_path);
-        let url = format!("https://raw.githubusercontent.com/{}/refs/heads/master/{}", git_url, base_path);
+        // Create a temporary directory
+        let temp_dir = TempDir::new("repo_clone").ok()?;
 
-        // println!("full_path in try_git_fallback: {}", full_path);
-        println!("url in try_git_fallback: {}", url);
+        println!("temp_dir in try_git_fallback: {}", temp_dir.path().display());
+        // Clone the repository into the temporary directory
+        let repo = Repository::clone(git_url, temp_dir.path()).ok()?;
+        println!("repo in try_git_fallback: {}", repo.path().display());
 
-        let client = reqwest::blocking::Client::new();
-        match client.get(&url).send() {
-            Ok(response) if response.status().is_success() => {
-                match response.text() {
-                    Ok(text) => {
-                        println!("Response received: {}", text);
-                        Some(text)
-                    },
-                    Err(_) => None,
-                }
-            },
-            _ => None,
+        // List the files inside temp_dir
+        for entry in fs::read_dir(temp_dir.path()).ok()? {
+            let entry = entry.ok()?;
+            println!("File in temp_dir: {}", entry.path().display());
         }
+
+
+        // Construct the full path to the file
+        let full_path = temp_dir.path().join(base_path);
+        println!("full_path in try_git_fallback: {}", full_path.display());
+        // Read the file content
+        let content = fs::read_to_string(full_path).ok()?;
+        println!("content in try_git_fallback: {}", content);
+        // Return the file content
+        Some(content)
     })
 }
 #[cfg(test)]
