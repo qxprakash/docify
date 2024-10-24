@@ -1,6 +1,6 @@
 mod tests {
     mod submodule {
-        #[docify::export]
+        #[docify_clone::export]
         #[test]
         fn successful_unstake() {
             ExtBuilder::default().build_and_execute(|| {

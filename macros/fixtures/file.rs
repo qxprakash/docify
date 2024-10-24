@@ -1,9 +1,9 @@
-#[docify::export]
+#[docify_clone::export]
 fn some_fn() {
     println!("foo");
 }
 
-#[docify::export]
+#[docify_clone::export]
 fn some_other_fn() {
     println!("bar");
 }

@@ -343,11 +343,11 @@ impl AttributedItem for TraitItem {
 }
 
 /// Marks an item for export, making it available for embedding as a rust doc example via
-/// [`docify::embed!(..)`](`macro@embed`) or [`docify::embed_run!(..)`](`macro@embed_run`).
+/// [`docify_clone::embed!(..)`](`macro@embed`) or [`docify::embed_run!(..)`](`macro@embed_run`).
 ///
 /// By default, you can just call the attribute with no arguments like the following:
 /// ```ignore
-/// #[docify::export]
+/// #[docify_clone::export]
 /// mod some_item {
 ///     fn some_func() {
 ///         println!("hello world");
@@ -355,12 +355,12 @@ impl AttributedItem for TraitItem {
 /// }
 /// ```
 ///
-/// When you [`docify::embed!(..)`](`macro@embed`) this item, you will have to refer to it by
+/// When you [`docify_clone::embed!(..)`](`macro@embed`) this item, you will have to refer to it by
 /// the primary ident associated with the item, in this case `some_item`. In some cases, such
 /// as with `impl` statements, there is no clear main ident. You should handle these situations
 /// by specifying an ident manually (not doing so will result in a compile error):
 /// ```ignore
-/// #[docify::export(some_name)]
+/// #[docify_clone::export(some_name)]
 /// impl SomeTrait for Something {
 ///     // ...
 /// }
@@ -369,29 +369,29 @@ impl AttributedItem for TraitItem {
 /// You are also free to specify an alternate export name for items that _do_ have a clear
 /// ident if you need/want to:
 /// ```ignore
-/// #[docify::export(SomeName)]
+/// #[docify_clone::export(SomeName)]
 /// fn hello_world() {
 ///     println!("hello");
 ///     println!("world");
 /// }
 /// ```
 ///
-/// When you go to [`docify::embed!(..)`](`macro@embed`) or
+/// When you go to [`docify_clone::embed!(..)`](`macro@embed`) or
 /// [`docify::embed_run!(..)`](`macro@embed_run`) such an item, you must refer to it by
-/// `SomeName` (in this case), or whatever name you provided to `#[docify::export]`.
+/// `SomeName` (in this case), or whatever name you provided to `#[docify_clone::export]`.
 ///
 /// There is no guard to prevent duplicate export names in the same file, and export names are
 /// all considered within the global namespace of the file in question (they do not exist
 /// inside a particular module or scope within a source file). When using
-/// [`docify::embed!(..)`](`macro@embed`), duplicate results are simply embedded one after
+/// [`docify_clone::embed!(..)`](`macro@embed`), duplicate results are simply embedded one after
 /// another, and this is by design.
 ///
 /// If there are multiple items with the same inherent name in varipous scopes in the same
 /// file, and you want to export just one of them as a doc example, you should specify a unique
 /// ident as the export name for this item.
 ///
-/// Note that if you wish to embed an _entire_ file, you don't need `#[docify::export]` at all
-/// and can instead specify just a path to [`docify::embed!(..)`](`macro@embed`) or
+/// Note that if you wish to embed an _entire_ file, you don't need `#[docify_clone::export]` at all
+/// and can instead specify just a path to [`docify_clone::embed!(..)`](`macro@embed`) or
 /// [`docify::embed_run!(..)`](`macro@embed_run`).
 #[proc_macro_attribute]
 pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
@@ -401,12 +401,12 @@ pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
     }
 }
 
-/// Like [`#[docify::export]`](`macro@export`) but only exports the inner contents of whatever
+/// Like [`#[docify_clone::export]`](`macro@export`) but only exports the inner contents of whatever
 /// item the attribute is attached to.
 ///
 /// For example, given the following:
 /// ```ignore
-/// #[docify::export_content]
+/// #[docify_clone::export_content]
 /// mod my_mod {
 ///     pub fn some_fun() {
 ///         println!("hello world!");
@@ -421,9 +421,9 @@ pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
 /// }
 /// ```
 ///
-/// Note that if [`#[docify::export_content]`](`macro@export_content`) is used on an item that
+/// Note that if [`#[docify_clone::export_content]`](`macro@export_content`) is used on an item that
 /// has no notion of inner contents, such as a type, static, or const declaration, it will
-/// simply function like a regular [`#[docify::export]`](`macro@export`) attribute.
+/// simply function like a regular [`#[docify_clone::export]`](`macro@export`) attribute.
 ///
 /// Supported items include:
 /// - functions
@@ -433,7 +433,7 @@ pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
 /// - basic blocks (when inside an outer macro pattern)
 ///
 /// All other items will behave like they normally do with
-/// [`#[docify::export]`](`macro@export`). Notably this includes structs and enums, because
+/// [`#[docify_clone::export]`](`macro@export`). Notably this includes structs and enums, because
 /// while these items have a defined notion of "contents", those contents cannot stand on their
 /// own as valid rust code.
 #[proc_macro_attribute]
@@ -478,7 +478,7 @@ fn export_internal(
 ///
 /// ```ignore
 /// /// some doc comments here
-/// #[doc = docify::embed!("path/to/file.rs", my_example)]
+/// #[doc = docify_clone::embed!("path/to/file.rs", my_example)]
 /// /// more doc comments
 /// struct DocumentedItem;
 /// ```
@@ -500,14 +500,14 @@ fn export_internal(
 ///   `docs.rs`, so you should not use `../` or similar means unless you plan to never deploy
 ///   to these services.
 /// - `item_ident`: (optional) can be specified after `source_path`, preceded by a comma. This
-///   should match the export name you used to [`#[docify::export(..)]`](`macro@export`) the
+///   should match the export name you used to [`#[docify_clone::export(..)]`](`macro@export`) the
 ///   item, or, if no export name was specified, this should match the inherent ident/name of
 ///   the item. If the item cannot be found, a compile error will be issued. As mentioned
 ///   above, if no `item_ident` is specified, the entire file will be embedded as an example.
 ///
 /// All items in the `source_file` exist in the same global scope when they are exported for
 /// embedding. Special care must be taken with how you
-/// [`#[docify::export(..)]`](`macro@export`) items in order to get the item you want.
+/// [`#[docify_clone::export(..)]`](`macro@export`) items in order to get the item you want.
 ///
 /// If there multiple items in a file that resolve to the same `item_ident` (whether as an
 /// inherent ident name or as a manually specified `item_ident`), and you embed using this
@@ -517,26 +517,26 @@ fn export_internal(
 /// Here is an example of embedding an _entire_ source file as an example:
 /// ```ignore
 /// /// Here is a cool example module:
-/// #[doc = docify::embed!("examples/my_example.rs")]
+/// #[doc = docify_clone::embed!("examples/my_example.rs")]
 /// struct DocumentedItem
 /// ```
 ///
 /// You are also free to embed multiple examples in the same set of doc comments:
 /// ```ignore
 /// /// Example 1:
-/// #[doc = docify::embed!("examples/example_1.rs")]
+/// #[doc = docify_clone::embed!("examples/example_1.rs")]
 /// /// Example 2:
-/// #[doc = docify::embed!("examples/example_2.rs")]
+/// #[doc = docify_clone::embed!("examples/example_2.rs")]
 /// /// More docs
 /// struct DocumentedItem;
 /// ```
 ///
-/// Note that all examples generated by `docify::embed!(..)` are set to `ignore` by default,
+/// Note that all examples generated by `docify_clone::embed!(..)` are set to `ignore` by default,
 /// since they are typically already functioning examples or tests elsewhere in the project,
 /// and so they do not need to be run as well in the context where they are being embedded. If
 /// for whatever reason you _do_ want to also run an embedded example as a doc example, you can
 /// use [`docify::embed_run!(..)`](`macro@embed_run`) which removes the `ignore` tag from the
-/// generated example but otherwise functions exactly like `#[docify::embed!(..)]` in every
+/// generated example but otherwise functions exactly like `#[docify_clone::embed!(..)]` in every
 /// way.
 ///
 /// Output should match `rustfmt` output exactly.
@@ -548,11 +548,11 @@ pub fn embed(tokens: TokenStream) -> TokenStream {
     }
 }
 
-/// Exactly like [`docify::embed!(..)`](`macro@embed`) in every way _except_ the generated
+/// Exactly like [`docify_clone::embed!(..)`](`macro@embed`) in every way _except_ the generated
 /// examples are also run automatically as rust doc examples (`ignore` is not included).
 ///
 /// Other than this fact all of the usual docs and syntax and behaviors for
-/// [`docify::embed!(..)`](`macro@embed`) also apply to this macro.
+/// [`docify_clone::embed!(..)`](`macro@embed`) also apply to this macro.
 #[proc_macro]
 pub fn embed_run(tokens: TokenStream) -> TokenStream {
     match embed_internal(tokens, MarkdownLanguage::Blank) {
@@ -561,7 +561,7 @@ pub fn embed_run(tokens: TokenStream) -> TokenStream {
     }
 }
 
-/// Used to parse args for `docify::embed!(..)`
+/// Used to parse args for `docify_clone::embed!(..)`
 #[derive(Parse)]
 struct EmbedArgs {
     file_path: LitStr,
@@ -588,7 +588,7 @@ mod keywords {
     custom_keyword!(embed);
 }
 
-/// Used to parse a full `docify::embed!(..)` call, as seen in markdown documents and other
+/// Used to parse a full `docify_clone::embed!(..)` call, as seen in markdown documents and other
 /// embedded settings
 #[derive(Parse)]
 struct EmbedCommentCall {
@@ -660,7 +660,7 @@ impl<'ast> SupportedVisitItem<'ast> for ItemVisitor {
             if second_to_last_seg.ident != last_seg.ident && second_to_last_seg.ident != "docify" {
                 continue;
             }
-            // we have found a #[something::docify::export] or #[docify::export] or
+            // we have found a #[something::docify_clone::export] or #[docify_clone::export] or
             // #[export]-style attribute
             // (OR any of the above but export_content)
 
@@ -875,7 +875,7 @@ impl From<&String> for CompressedString {
     }
 }
 
-/// Responsible for retrieving the "contents" of an item, used by `#[docify::export_contents]`
+/// Responsible for retrieving the "contents" of an item, used by `#[docify_clone::export_contents]`
 fn get_content_tokens<'a>(item: &'a Item) -> TokenStream2 {
     match item {
         // Item::Const(item_const) => item_const.to_token_stream(),
@@ -1250,13 +1250,13 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
     Ok(output.join(""))
 }
 
-/// Allows you to use [`docify::embed!(..)`](`macro@embed``) within markdown source files via
+/// Allows you to use [`docify_clone::embed!(..)`](`macro@embed``) within markdown source files via
 /// HTML comments and compiles the result for you (at compile-time).
 ///
 /// The macro supports embed syntax within markdown files like the following:
 /// ```markdown
 /// # This is some markdown
-/// <!-- docify::embed!("some/rust/file.rs", some_ident) -->
+/// <!-- docify_clone::embed!("some/rust/file.rs", some_ident) -->
 /// ```
 ///
 /// Which would expand to the `some_ident` exported item in `some/rust/file.rs` expanding into

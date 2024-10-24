@@ -5,12 +5,12 @@ Markdown is really cool. It lets you write files that begin with a `.md` extensi
 
 ```markdown
 # Some Markdown
-<!-- docify::embed!("examples/samples.rs", some_random_test) -->
+<!-- docify_clone::embed!("examples/samples.rs", some_random_test) -->
 This is some more markdown
 ```
 
 The following is the same embed from above, but live (this should show the embedded item!):
 
-<!-- docify::embed!("examples/samples.rs", some_random_test) -->
+<!-- docify_clone::embed!("examples/samples.rs", some_random_test) -->
 
 If you see code above, then it worked!

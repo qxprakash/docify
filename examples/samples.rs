@@ -6,19 +6,19 @@
 
 use proc_utils::*;
 
-#[docify::export]
+#[docify_clone::export]
 struct MyCoolStruct {
     field1: u32,
     field2: bool,
 }
 
-#[docify::export]
+#[docify_clone::export]
 #[test]
 fn some_random_test() {
     assert_eq!(2 + 2, 4);
 }
 
-#[docify::export(test_with_custom_name)]
+#[docify_clone::export(test_with_custom_name)]
 #[test]
 fn another_test() {
     assert_eq!(2 + 3, 5);
@@ -28,30 +28,30 @@ trait DoSomething {
     fn do_something();
 }
 
-#[docify::export(SomeImpl)]
+#[docify_clone::export(SomeImpl)]
 impl DoSomething for MyCoolStruct {
     fn do_something() {
         println!("foo!");
     }
 }
 
-#[docify::export(Duplicate)]
+#[docify_clone::export(Duplicate)]
 struct _StructOne;
 
-#[docify::export(Duplicate)]
+#[docify_clone::export(Duplicate)]
 struct _StructTwo;
 
-#[docify::export(Duplicate)]
+#[docify_clone::export(Duplicate)]
 struct _StructThree;
 
-#[docify::export]
+#[docify_clone::export]
 #[allow(unused)]
 fn runnable() {
     assert_eq!(2 + 2, 4);
 }
 
 // This one gets embedded automatically in README.md and src/lib.rs!
-#[docify::export]
+#[docify_clone::export]
 fn some_example() {
     assert_eq!(2 + 2, 4);
     assert_eq!(2 + 3, 5);
@@ -59,7 +59,7 @@ fn some_example() {
 }
 
 /// Some doc comments
-#[docify::export]
+#[docify_clone::export]
 fn some_complex_example() {
     // some comments
     /// some doc comments
@@ -77,8 +77,8 @@ fn some_complex_example() {
 
 #[rustfmt::skip]
 mod bad {
-    #[docify::export]
-    fn 
+    #[docify_clone::export]
+    fn
     wonky_comment_example() { /* first comment */
        // this is a line comment
                 // this is also a line comment
@@ -89,23 +89,23 @@ mod bad {
         }
 }
 
-#[docify::export]
+#[docify_clone::export]
 #[test]
 fn test_with_normal_ordering() {
     assert_eq!(2 + 2, 4);
 }
 
 #[test]
-#[docify::export]
+#[docify_clone::export]
 /// This is a comment
 fn test_with_weird_ordering() {
     assert_eq!(2 + 2, 4);
 }
 
 #[test]
-#[docify::export]
-/// This is a comment plus `#[docify::export]`
-/// `#[docify::export]`
+#[docify_clone::export]
+/// This is a comment plus `#[docify_clone::export]`
+/// `#[docify_clone::export]`
 fn docify_keyword_in_comments() {
     assert_eq!(2 + 3, 5);
 }
@@ -113,7 +113,7 @@ fn docify_keyword_in_comments() {
 mod some_module {
     use super::*;
 
-    #[docify::export]
+    #[docify_clone::export]
     #[rustfmt::skip]
     #[suppress_item]
     fn oliver_substrate_example_2() {
@@ -132,7 +132,7 @@ mod some_module {
     }
 }
 
-#[docify::export]
+#[docify_clone::export]
 /// Example struct holding the most recently set [`u32`] and the second
 /// most recently set [`u32`] (if one existed).
 struct LiamIssue7;
@@ -146,20 +146,20 @@ trait SomeTrait {
 pub struct Liam9;
 
 impl SomeTrait for Liam9 {
-    #[docify::export]
+    #[docify_clone::export]
     fn trait_impl_method() {
         println!("foo!");
     }
 }
 
-#[docify::export_content]
+#[docify_clone::export_content]
 trait SomeOtherTrait {
     fn foo();
     fn bar();
     type Something;
 }
 
-#[docify::export_content(impl_some_other_trait_for_my_cool_struct)]
+#[docify_clone::export_content(impl_some_other_trait_for_my_cool_struct)]
 impl SomeOtherTrait for MyCoolStruct {
     fn foo() {
         println!("foo!");
@@ -172,7 +172,7 @@ impl SomeOtherTrait for MyCoolStruct {
     type Something = ();
 }
 
-#[docify::export_content]
+#[docify_clone::export_content]
 pub fn some_other_fn(x: i32, y: i32) -> Result<i32, i32> {
     if x > 10 {
         Ok(33)
@@ -183,39 +183,39 @@ pub fn some_other_fn(x: i32, y: i32) -> Result<i32, i32> {
     }
 }
 
-#[docify::export_content]
+#[docify_clone::export_content]
 const MY_CONST: &'static str = "hello world";
 
-#[docify::export]
+#[docify_clone::export]
 pub mod outer_mod {
 
     pub fn hello() {
         println!("hello");
     }
 
-    #[docify::export]
+    #[docify_clone::export]
     pub fn outer_foo() {
         println!("foo!");
     }
 
-    #[docify::export]
+    #[docify_clone::export]
     pub mod inner_mod {
         const SOMETHING: i32 = 55;
 
-        #[docify::export]
+        #[docify_clone::export]
         pub fn inner_inner_bar() {
             println!("bar!");
         }
 
-        #[docify::export_content]
+        #[docify_clone::export_content]
         pub fn inner_inner_fizz() {
             println!("fizz!");
         }
     }
 
-    #[docify::export_content]
+    #[docify_clone::export_content]
     pub mod inner_mod2 {
-        #[docify::export]
+        #[docify_clone::export]
         pub fn inner_inner_wiz() {
             println!("wiz!");
         }

@@ -1,5 +1,5 @@
-//! Docify provides a simple set of rust macros, namely [`#[docify::export]`](`export`) and
-//! [`docify::embed!`](`embed`), that allow you to dynamically embed tests and examples at
+//! Docify provides a simple set of rust macros, namely [`#[docify_clone::export]`](`export`) and
+//! [`docify_clone::embed!`](`embed`), that allow you to dynamically embed tests and examples at
 //! compile time from the current crate or sub-crates of the current crate directly within rust
 //! docs comments, with the option to make these examples runnable.
 //!
@@ -15,10 +15,10 @@
 //! ## General Usage
 //!
 //! Using `docify` is simple. First mark the tests/examples/items that you wish to embed with
-//! `#[docify::export]`, such as the following:
+//! `#[docify_clone::export]`, such as the following:
 //!
 //! ```
-//! #[docify::export]
+//! #[docify_clone::export]
 //! fn some_example() {
 //!     assert_eq!(2 + 2, 4);
 //!     assert_eq!(2 + 3, 5);
@@ -31,7 +31,7 @@
 //! ```
 //! /// These are some docs about an item. You can embed examples, tests, and
 //! /// other items directly into docs using the following macro:
-//! #[doc = docify::embed!("examples/samples.rs", some_example)]
+//! #[doc = docify_clone::embed!("examples/samples.rs", some_example)]
 //! /// More docs can go here, the example will embed itself inline exactly
 //! /// where you reference it.
 //! pub struct SomeItem;
@@ -66,7 +66,7 @@
 //! ## Dynamic Embedding in Markdown Files
 //!
 //! A newly added feature allows compiling entire directories of markdown files with HTML
-//! comments that contain regular [`docify::embed!`](`macro@embed`) calls. See
+//! comments that contain regular [`docify_clone::embed!`](`macro@embed`) calls. See
 //! [`compile_markdown!`](`macro@compile_markdown`) for more info.
 //!
 //! There is a live example of this as well in `README.md` where this same sentence appears in

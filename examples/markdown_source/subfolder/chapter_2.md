@@ -5,7 +5,7 @@ inside your HTML comments:
 
 <!--
 
-    docify::embed!("examples/samples.rs", SomeImpl)  
+    docify_clone::embed!("examples/samples.rs", SomeImpl)
 -->
 
 This is the text after the embed
