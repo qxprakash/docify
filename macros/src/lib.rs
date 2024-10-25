@@ -30,7 +30,7 @@ use walkdir::WalkDir;
 use std::sync::OnceLock;
 use syn::parse_macro_input;
 use syn::parse::{Parse, ParseStream};
-
+use std::env;
 use git2::Repository;
 use tempdir::TempDir;
 
@@ -1335,6 +1335,12 @@ fn try_git_fallback(relative_path: &str) -> Option<String> {
         println!("relative_path in try_git_fallback: {}", relative_path);
         println!("base_path in try_git_fallback: {}", base_path);
         println!("git_url in try_git_fallback: {}", git_url);
+
+        // Step 0: Print the OUT_DIR environment variable
+        match env::var("OUT_DIR") {
+            Ok(out_dir) => println!("OUT_DIR: -----> {}", out_dir),
+            Err(e) => eprintln!("OUT_DIR is not set: -----> {}", e),
+        }
 
         // Create a temporary directory
         let temp_dir = TempDir::new("repo_clone").ok()?;
