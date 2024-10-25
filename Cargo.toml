@@ -3,7 +3,7 @@ members = ["macros"]
 
 [package]
 name = "docify_clone"
-version = "0.0.1"
+version = "0.0.4"
 edition = "2021"
 authors = ["qxprakash"]
 license = "MIT"
@@ -12,7 +12,7 @@ categories = ["development-tools", "development-tools::procedural-macro-helpers"
 description = "Docify allows you to live-embed at compile time pieces of code from throughout your project as rust doc examples."
 
 [dependencies]
-docify_macros_clone = { path = "macros", version = "0.0.1" }
+docify_macros_clone = { path = "macros", version = "0.0.4" }
 
 [dev-dependencies]
 proc-utils = "0.1.0"
