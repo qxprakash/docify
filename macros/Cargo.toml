@@ -1,12 +1,10 @@
 [package]
-name = "docify_macros"
-version = "0.2.8"
+name = "docif_macros"
+version = "0.0.1"
 edition = "2021"
-authors = ["sam0x17"]
+authors = ["qxprakash"]
 license = "MIT"
-homepage = "https://sam0x17.dev"
-repository = "https://github.com/sam0x17/docify"
-description = "Support macros for docify."
+description = "Support macros for docif."
 
 [lib]
 proc-macro = true

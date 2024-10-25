@@ -89,7 +89,7 @@ fn test_compile_markdown_source_valid() {
             "this is some markdown\n\
             this is some more markdown\n\
             # this is a title\n\
-            <!-- docify::embed!(\"fixtures/file.rs\", some_fn) -->\n\
+            <!-- docif::embed!(\"fixtures/file.rs\", some_fn) -->\n\
             this is some more text\n",
         )
         .unwrap(),
@@ -107,7 +107,7 @@ fn test_compile_markdown_source_valid() {
         "this is some markdown\n\
         this is some more markdown\n\
         # this is a title\n\
-        <!-- docify::embed!(\"fixtures/file.rs\", some_other_fn) -->\n\
+        <!-- docif::embed!(\"fixtures/file.rs\", some_other_fn) -->\n\
         this is some more text\n",
     )
     .unwrap()
@@ -116,7 +116,7 @@ fn test_compile_markdown_source_valid() {
         "this is some markdown\n\
         this is some more markdown\n\
         # this is a title\n\
-        <!--docify::embed!(\"fixtures/file.rs\", some_other_fn) -->\n\
+        <!--docif::embed!(\"fixtures/file.rs\", some_other_fn) -->\n\
         this is some more text\n",
     )
     .unwrap()
@@ -125,7 +125,7 @@ fn test_compile_markdown_source_valid() {
         "this is some markdown\n\
         this is some more markdown\n\
         # this is a title\n\
-        <!-- docify::embed!(\"fixtures/file.rs\", some_fn)-->\n\
+        <!-- docif::embed!(\"fixtures/file.rs\", some_fn)-->\n\
         this is some more text\n",
     )
     .unwrap()
@@ -134,18 +134,18 @@ fn test_compile_markdown_source_valid() {
         "this is some markdown\n\
         this is some more markdown\n\
         # this is a title\n\
-        <!--docify::embed!(\"fixtures/file.rs\", some_fn)-->\n\
+        <!--docif::embed!(\"fixtures/file.rs\", some_fn)-->\n\
         this is some more text\n",
     )
     .unwrap()
     .contains("foo"));
     assert!(compile_markdown_source(
-        "<!-- docify::embed!(\"fixtures/file.rs\", some_fn) --> this is some more text\n",
+        "<!-- docif::embed!(\"fixtures/file.rs\", some_fn) --> this is some more text\n",
     )
     .unwrap()
     .ends_with("more text\n"));
     assert!(compile_markdown_source(
-        "prefix<!-- docify::embed!(\"fixtures/file.rs\", some_fn) -->",
+        "prefix<!-- docif::embed!(\"fixtures/file.rs\", some_fn) -->",
     )
     .unwrap()
     .starts_with("prefix"));
@@ -155,19 +155,19 @@ fn test_compile_markdown_source_valid() {
 fn test_compile_markdown_source_invalid() {
     assert!(compile_markdown_source(
         "# this is a title\n\
-        <!-- docify:embed!(\"fixtures/file.rs\", some_fn) -->\n\
+        <!-- docif:embed!(\"fixtures/file.rs\", some_fn) -->\n\
         this is some more text\n",
     )
     .is_err());
     assert!(compile_markdown_source(
         "# this is a title\n\
-        <!-- docify::em!(\"fixtures/file.rs\", some_fn) -->\n\
+        <!-- docif::em!(\"fixtures/file.rs\", some_fn) -->\n\
         this is some more text\n",
     )
     .is_err());
     assert!(compile_markdown_source(
         "# this is a title\n\
-        <!-- docify -->\n\
+        <!-- docif -->\n\
         this is some more text\n",
     )
     .is_err());

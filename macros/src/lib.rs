@@ -1,4 +1,4 @@
-//! This crate contains the proc macros used by [docify](https://crates.io/crates/docify).
+//! This crate contains the proc macros used by [docif](https://crates.io/crates/docif).
 
 use common_path::common_path;
 use derive_syn_parse::Parse;
@@ -168,7 +168,7 @@ fn prettify_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .collect::<PathBuf>()
 }
 
-const DOCIFYING: &'static str = "   Docifying ";
+const DOCIFING: &'static str = "   DOCIFING ";
 
 /// Tries to write the specified string to the terminal in green+bold. Falls back to normal
 /// `print!()`. Function is infallible.
@@ -344,11 +344,11 @@ impl AttributedItem for TraitItem {
 }
 
 /// Marks an item for export, making it available for embedding as a rust doc example via
-/// [`docify::embed!(..)`](`macro@embed`) or [`docify::embed_run!(..)`](`macro@embed_run`).
+/// [`docif::embed!(..)`](`macro@embed`) or [`docif::embed_run!(..)`](`macro@embed_run`).
 ///
 /// By default, you can just call the attribute with no arguments like the following:
 /// ```ignore
-/// #[docify::export]
+/// #[docif::export]
 /// mod some_item {
 ///     fn some_func() {
 ///         println!("hello world");
@@ -356,12 +356,12 @@ impl AttributedItem for TraitItem {
 /// }
 /// ```
 ///
-/// When you [`docify::embed!(..)`](`macro@embed`) this item, you will have to refer to it by
+/// When you [`docif::embed!(..)`](`macro@embed`) this item, you will have to refer to it by
 /// the primary ident associated with the item, in this case `some_item`. In some cases, such
 /// as with `impl` statements, there is no clear main ident. You should handle these situations
 /// by specifying an ident manually (not doing so will result in a compile error):
 /// ```ignore
-/// #[docify::export(some_name)]
+/// #[docif::export(some_name)]
 /// impl SomeTrait for Something {
 ///     // ...
 /// }
@@ -370,30 +370,30 @@ impl AttributedItem for TraitItem {
 /// You are also free to specify an alternate export name for items that _do_ have a clear
 /// ident if you need/want to:
 /// ```ignore
-/// #[docify::export(SomeName)]
+/// #[docif::export(SomeName)]
 /// fn hello_world() {
 ///     println!("hello");
 ///     println!("world");
 /// }
 /// ```
 ///
-/// When you go to [`docify::embed!(..)`](`macro@embed`) or
-/// [`docify::embed_run!(..)`](`macro@embed_run`) such an item, you must refer to it by
-/// `SomeName` (in this case), or whatever name you provided to `#[docify::export]`.
+/// When you go to [`docif::embed!(..)`](`macro@embed`) or
+/// [`docif::embed_run!(..)`](`macro@embed_run`) such an item, you must refer to it by
+/// `SomeName` (in this case), or whatever name you provided to `#[docif::export]`.
 ///
 /// There is no guard to prevent duplicate export names in the same file, and export names are
 /// all considered within the global namespace of the file in question (they do not exist
 /// inside a particular module or scope within a source file). When using
-/// [`docify::embed!(..)`](`macro@embed`), duplicate results are simply embedded one after
+/// [`docif::embed!(..)`](`macro@embed`), duplicate results are simply embedded one after
 /// another, and this is by design.
 ///
 /// If there are multiple items with the same inherent name in varipous scopes in the same
 /// file, and you want to export just one of them as a doc example, you should specify a unique
 /// ident as the export name for this item.
 ///
-/// Note that if you wish to embed an _entire_ file, you don't need `#[docify::export]` at all
-/// and can instead specify just a path to [`docify::embed!(..)`](`macro@embed`) or
-/// [`docify::embed_run!(..)`](`macro@embed_run`).
+/// Note that if you wish to embed an _entire_ file, you don't need `#[docif::export]` at all
+/// and can instead specify just a path to [`docif::embed!(..)`](`macro@embed`) or
+/// [`docif::embed_run!(..)`](`macro@embed_run`).
 #[proc_macro_attribute]
 pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
     match export_internal(attr, tokens) {
@@ -402,12 +402,12 @@ pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
     }
 }
 
-/// Like [`#[docify::export]`](`macro@export`) but only exports the inner contents of whatever
+/// Like [`#[docif::export]`](`macro@export`) but only exports the inner contents of whatever
 /// item the attribute is attached to.
 ///
 /// For example, given the following:
 /// ```ignore
-/// #[docify::export_content]
+/// #[docif::export_content]
 /// mod my_mod {
 ///     pub fn some_fun() {
 ///         println!("hello world!");
@@ -422,9 +422,9 @@ pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
 /// }
 /// ```
 ///
-/// Note that if [`#[docify::export_content]`](`macro@export_content`) is used on an item that
+/// Note that if [`#[docif::export_content]`](`macro@export_content`) is used on an item that
 /// has no notion of inner contents, such as a type, static, or const declaration, it will
-/// simply function like a regular [`#[docify::export]`](`macro@export`) attribute.
+/// simply function like a regular [`#[docif::export]`](`macro@export`) attribute.
 ///
 /// Supported items include:
 /// - functions
@@ -434,7 +434,7 @@ pub fn export(attr: TokenStream, tokens: TokenStream) -> TokenStream {
 /// - basic blocks (when inside an outer macro pattern)
 ///
 /// All other items will behave like they normally do with
-/// [`#[docify::export]`](`macro@export`). Notably this includes structs and enums, because
+/// [`#[docif::export]`](`macro@export`). Notably this includes structs and enums, because
 /// while these items have a defined notion of "contents", those contents cannot stand on their
 /// own as valid rust code.
 #[proc_macro_attribute]
@@ -479,14 +479,14 @@ fn export_internal(
 ///
 /// ```ignore
 /// /// some doc comments here
-/// #[doc = docify::embed!("path/to/file.rs", my_example)]
+/// #[doc = docif::embed!("path/to/file.rs", my_example)]
 /// /// more doc comments
 /// struct DocumentedItem;
 /// ```
 ///
 /// Which will expand to the `my_example` item in `path/to/file.rs` being embedded in a rust
 /// doc example marked with `ignore`. If you want to have your example actually run in rust
-/// docs as well, you should use [`docify::embed_run!(..)`](`macro@embed_run`).
+/// docs as well, you should use [`docif::embed_run!(..)`](`macro@embed_run`).
 ///
 /// ### Arguments
 /// - `source_path`: the file path (relative to the current crate root) that contains the item
@@ -501,14 +501,14 @@ fn export_internal(
 ///   `docs.rs`, so you should not use `../` or similar means unless you plan to never deploy
 ///   to these services.
 /// - `item_ident`: (optional) can be specified after `source_path`, preceded by a comma. This
-///   should match the export name you used to [`#[docify::export(..)]`](`macro@export`) the
+///   should match the export name you used to [`#[docif::export(..)]`](`macro@export`) the
 ///   item, or, if no export name was specified, this should match the inherent ident/name of
 ///   the item. If the item cannot be found, a compile error will be issued. As mentioned
 ///   above, if no `item_ident` is specified, the entire file will be embedded as an example.
 ///
 /// All items in the `source_file` exist in the same global scope when they are exported for
 /// embedding. Special care must be taken with how you
-/// [`#[docify::export(..)]`](`macro@export`) items in order to get the item you want.
+/// [`#[docif::export(..)]`](`macro@export`) items in order to get the item you want.
 ///
 /// If there multiple items in a file that resolve to the same `item_ident` (whether as an
 /// inherent ident name or as a manually specified `item_ident`), and you embed using this
@@ -518,26 +518,26 @@ fn export_internal(
 /// Here is an example of embedding an _entire_ source file as an example:
 /// ```ignore
 /// /// Here is a cool example module:
-/// #[doc = docify::embed!("examples/my_example.rs")]
+/// #[doc = docif::embed!("examples/my_example.rs")]
 /// struct DocumentedItem
 /// ```
 ///
 /// You are also free to embed multiple examples in the same set of doc comments:
 /// ```ignore
 /// /// Example 1:
-/// #[doc = docify::embed!("examples/example_1.rs")]
+/// #[doc = docif::embed!("examples/example_1.rs")]
 /// /// Example 2:
-/// #[doc = docify::embed!("examples/example_2.rs")]
+/// #[doc = docif::embed!("examples/example_2.rs")]
 /// /// More docs
 /// struct DocumentedItem;
 /// ```
 ///
-/// Note that all examples generated by `docify::embed!(..)` are set to `ignore` by default,
+/// Note that all examples generated by `docif::embed!(..)` are set to `ignore` by default,
 /// since they are typically already functioning examples or tests elsewhere in the project,
 /// and so they do not need to be run as well in the context where they are being embedded. If
 /// for whatever reason you _do_ want to also run an embedded example as a doc example, you can
-/// use [`docify::embed_run!(..)`](`macro@embed_run`) which removes the `ignore` tag from the
-/// generated example but otherwise functions exactly like `#[docify::embed!(..)]` in every
+/// use [`docif::embed_run!(..)`](`macro@embed_run`) which removes the `ignore` tag from the
+/// generated example but otherwise functions exactly like `#[docif::embed!(..)]` in every
 /// way.
 ///
 /// Output should match `rustfmt` output exactly.
@@ -549,11 +549,11 @@ pub fn embed(tokens: TokenStream) -> TokenStream {
     }
 }
 
-/// Exactly like [`docify::embed!(..)`](`macro@embed`) in every way _except_ the generated
+/// Exactly like [`docif::embed!(..)`](`macro@embed`) in every way _except_ the generated
 /// examples are also run automatically as rust doc examples (`ignore` is not included).
 ///
 /// Other than this fact all of the usual docs and syntax and behaviors for
-/// [`docify::embed!(..)`](`macro@embed`) also apply to this macro.
+/// [`docif::embed!(..)`](`macro@embed`) also apply to this macro.
 #[proc_macro]
 pub fn embed_run(tokens: TokenStream) -> TokenStream {
     match embed_internal(tokens, MarkdownLanguage::Blank) {
@@ -562,7 +562,7 @@ pub fn embed_run(tokens: TokenStream) -> TokenStream {
     }
 }
 
-/// Used to parse args for `docify::embed!(..)`
+/// Used to parse args for `docif::embed!(..)`
 #[derive(Parse)]
 struct EmbedArgs {
     file_path: LitStr,
@@ -585,15 +585,15 @@ impl ToTokens for EmbedArgs {
 mod keywords {
     use syn::custom_keyword;
 
-    custom_keyword!(docify);
+    custom_keyword!(docif);
     custom_keyword!(embed);
 }
 
-/// Used to parse a full `docify::embed!(..)` call, as seen in markdown documents and other
+/// Used to parse a full `docif::embed!(..)` call, as seen in markdown documents and other
 /// embedded settings
 #[derive(Parse)]
 struct EmbedCommentCall {
-    #[prefix(keywords::docify)]
+    #[prefix(keywords::docif)]
     #[prefix(Token![::])]
     #[prefix(keywords::embed)]
     #[prefix(Token![!])]
@@ -628,7 +628,7 @@ fn into_example(st: &str, lang: MarkdownLanguage) -> String {
     lines.join("\n")
 }
 
-/// Generalizes over items that we support exporting via Docify, used by [`ItemVisitor`].
+/// Generalizes over items that we support exporting via docif, used by [`ItemVisitor`].
 trait SupportedVisitItem<'ast> {
     fn visit_supported_item<T: NamedItem + AttributedItem + ToTokens + Clone>(
         &mut self,
@@ -658,10 +658,10 @@ impl<'ast> SupportedVisitItem<'ast> for ItemVisitor {
             let Some(second_to_last_seg) = attr.path().segments.iter().rev().nth(1) else {
                 continue;
             };
-            if second_to_last_seg.ident != last_seg.ident && second_to_last_seg.ident != "docify" {
+            if second_to_last_seg.ident != last_seg.ident && second_to_last_seg.ident != "docif" {
                 continue;
             }
-            // we have found a #[something::docify::export] or #[docify::export] or
+            // we have found a #[something::docif::export] or #[docif::export] or
             // #[export]-style attribute
             // (OR any of the above but export_content)
 
@@ -800,7 +800,7 @@ impl CompressedString {
     }
 }
 
-static DOCIFY_ATTRIBUTES: Lazy<Regex> = Lazy::new(|| {
+static DOCIF_ATTRIBUTES: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\n?\#\[(?:\w+\s*::\s*)*(?:export|export_content)(?:\s*\(\s*(\w+)\s*\))?\]\n?")
         .unwrap()
 });
@@ -844,7 +844,7 @@ impl From<&String> for CompressedString {
                 entities.push(entity);
             }
         }
-        for m in DOCIFY_ATTRIBUTES.find_iter(value) {
+        for m in DOCIF_ATTRIBUTES.find_iter(value) {
             let entity = SourceEntity::new(m.start(), m.end());
             if !entity.is_claimed(&claimed) {
                 entity.claim(&mut claimed);
@@ -876,7 +876,7 @@ impl From<&String> for CompressedString {
     }
 }
 
-/// Responsible for retrieving the "contents" of an item, used by `#[docify::export_contents]`
+/// Responsible for retrieving the "contents" of an item, used by `#[docif::export_contents]`
 fn get_content_tokens<'a>(item: &'a Item) -> TokenStream2 {
     match item {
         // Item::Const(item_const) => item_const.to_token_stream(),
@@ -943,8 +943,8 @@ fn source_excerpt<'a, T: ToTokens>(
     let Some(found_start) = compressed_source_string.find(compressed_item_string.as_str()) else {
         return Err(Error::new(
             item.span(),
-            "You have found a bug in docify! Please submit a new GitHub issue at \
-            https://github.com/sam0x17/docify/issues/new?title=%60source_excerpt\
+            "You have found a bug in docif! Please submit a new GitHub issue at \
+            https://github.com/sam0x17/docif/issues/new?title=%60source_excerpt\
             %60%3A%20can%27t%20find%20item%20in%20source with a sample of the item \
             you are trying to embed.",
         ));
@@ -957,7 +957,7 @@ fn source_excerpt<'a, T: ToTokens>(
     let final_excerpt = &source[start_pos..min(end_pos + 1, source.len())];
     Ok(final_excerpt
         .lines()
-        .filter(|line| !(DOCIFY_ATTRIBUTES.is_match(line) && !line.trim().starts_with("//")))
+        .filter(|line| !(DOCIF_ATTRIBUTES.is_match(line) && !line.trim().starts_with("//")))
         .collect::<Vec<&str>>()
         .join("\n"))
 }
@@ -999,7 +999,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             return Err(Error::new(
                 ident.span(),
                 format!(
-                    "Could not find docify export item '{}' in '{}'.",
+                    "Could not find docif export item '{}' in '{}'.",
                     ident,
                     file_path.display(),
                 ),
@@ -1067,7 +1067,7 @@ fn compile_markdown_internal(tokens: impl Into<TokenStream2>) -> Result<TokenStr
             compile_markdown_dir(input_path, format!("{}", output.display()))?;
         } else {
             if cfg!(not(test)) {
-                write_green(DOCIFYING);
+                write_green(DOCIFING);
                 println!(
                     "{} {} {}",
                     prettify_path(&input_path).display(),
@@ -1169,7 +1169,7 @@ fn compile_markdown_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
         let src_path = entry.path();
         let dest_path = transpose_subpath(&input_dir, &src_path, &output_dir);
         if cfg!(not(test)) {
-            write_green(DOCIFYING);
+            write_green(DOCIFING);
             println!(
                 "{} {} {}",
                 prettify_path(&src_path).display(),
@@ -1235,7 +1235,7 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
         let orig_comment = &source[m.start()..m.end()];
         // strip <!-- -->
         let comment = &orig_comment[4..(orig_comment.len() - 3)].trim();
-        if comment.starts_with("docify") {
+        if comment.starts_with("docif") {
             let args = parse2::<EmbedCommentCall>(comment.parse()?)?.args;
             let compiled = embed_internal_str(args.to_token_stream(), MarkdownLanguage::Rust)?;
             output.push(compiled);
@@ -1251,13 +1251,13 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
     Ok(output.join(""))
 }
 
-/// Allows you to use [`docify::embed!(..)`](`macro@embed``) within markdown source files via
+/// Allows you to use [`docif::embed!(..)`](`macro@embed``) within markdown source files via
 /// HTML comments and compiles the result for you (at compile-time).
 ///
 /// The macro supports embed syntax within markdown files like the following:
 /// ```markdown
 /// # This is some markdown
-/// <!-- docify::embed!("some/rust/file.rs", some_ident) -->
+/// <!-- docif::embed!("some/rust/file.rs", some_ident) -->
 /// ```
 ///
 /// Which would expand to the `some_ident` exported item in `some/rust/file.rs` expanding into
@@ -1274,7 +1274,7 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
 ///
 /// There are two supported arguments, of the form:
 /// ```ignore
-/// docify::compile_markdown!("input_path", "output_path");
+/// docif::compile_markdown!("input_path", "output_path");
 /// ```
 ///
 /// If `input_path` is a directory, then all markdown files (recursively) found within
@@ -1290,7 +1290,7 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
 ///
 /// While files are compiling, terminal output is produced such as:
 /// ```txt
-/// Docifying fixtures/subfolder/file_2.md => test_bin/subfolder/file_2.md
+/// DOCIFING fixtures/subfolder/file_2.md => test_bin/subfolder/file_2.md
 /// ```
 ///
 /// ## Conventions
@@ -1300,13 +1300,13 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
 ///
 /// ```ignore
 /// #[cfg(all(doc, feature = "generate-readme"))]
-/// compile_markdown!("README.docify.md", "README.md");
+/// compile_markdown!("README.docif.md", "README.md");
 /// ```
 ///
 /// This way the `README.md will not regenerate itself every time a user of your crate runs
 /// `cargo doc` unless they explicitly enable the `generate-readme` feature for your crate.
 ///
-/// Another convention we encourage, shown above, is naming template files `foo.docify.md` so
+/// Another convention we encourage, shown above, is naming template files `foo.docif.md` so
 /// they can exist alongside the generated `foo.md` file without collisions.
 #[proc_macro]
 pub fn compile_markdown(tokens: TokenStream) -> TokenStream {
