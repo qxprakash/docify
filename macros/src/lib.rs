@@ -1331,35 +1331,54 @@ pub fn set_git_fallback(input: TokenStream) -> TokenStream {
 }
 
 fn try_git_fallback(relative_path: &str) -> Option<String> {
-    GIT_FALLBACK.get().and_then(|(git_url, base_path)| {
-        println!("relative_path in try_git_fallback: {}", relative_path);
-        println!("base_path in try_git_fallback: {}", base_path);
-        println!("git_url in try_git_fallback: {}", git_url);
+    // Attempt to access the GIT_FALLBACK configuration
+    let (git_url, base_path) = GIT_FALLBACK.get()?;
 
-        // Create a temporary directory
-        let temp_dir = TempDir::new("repo_clone").ok()?;
+    // Step 1: Create the temporary directory with error handling
+    let temp_dir = PathBuf::from("/opt/rustwide/workdir/temp_clone");
+    if let Err(e) = fs::create_dir_all(&temp_dir) {
+        eprintln!("Failed to create temp directory: {}: {}", temp_dir.display(), e);
+        return None;
+    }
+    println!("temp_dir in try_git_fallback: {}", temp_dir.display());
 
-        println!("temp_dir in try_git_fallback: {}", temp_dir.path().display());
-        // Clone the repository into the temporary directory
-        let repo = Repository::clone(git_url, temp_dir.path()).ok()?;
-        println!("repo in try_git_fallback: {}", repo.path().display());
+    // Step 2: Log the inputs
+    println!("relative_path in try_git_fallback: {}", relative_path);
+    println!("base_path in try_git_fallback: {}", base_path);
+    println!("git_url in try_git_fallback: {}", git_url);
 
-        // List the files inside temp_dir
-        for entry in fs::read_dir(temp_dir.path()).ok()? {
-            let entry = entry.ok()?;
-            println!("File in temp_dir: {}", entry.path().display());
+    // Step 3: Attempt to clone the repository
+    let repo = match Repository::clone(git_url, &temp_dir) {
+        Ok(repo) => repo,
+        Err(e) => {
+            eprintln!("Failed to clone repository from {}: {}", git_url, e);
+            let _ = fs::remove_dir_all(&temp_dir); // Clean up if clone fails
+            return None;
         }
+    };
 
+    // Step 4: Construct the full path to the target file
+    let full_path = temp_dir.join(base_path).join(relative_path);
+    println!("full_path in try_git_fallback: {}", full_path.display());
 
-        // Construct the full path to the file
-        let full_path = temp_dir.path().join(base_path);
-        println!("full_path in try_git_fallback: {}", full_path.display());
-        // Read the file content
-        let content = fs::read_to_string(full_path).ok()?;
-        println!("content in try_git_fallback: {}", content);
-        // Return the file content
-        Some(content)
-    })
+    // Step 5: Attempt to read the file content
+    let content = match fs::read_to_string(&full_path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("Failed to read file at {}: {}", full_path.display(), e);
+            let _ = fs::remove_dir_all(&temp_dir); // Clean up
+            return None;
+        }
+    };
+
+    // Step 6: Clean up the temporary directory
+    if let Err(e) = fs::remove_dir_all(&temp_dir) {
+        eprintln!("Failed to remove temp directory {}: {}", temp_dir.display(), e);
+    }
+
+    // Step 7: Return the file content if everything succeeds
+    Some(content)
 }
+
 #[cfg(test)]
 mod tests;
