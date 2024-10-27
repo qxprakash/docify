@@ -2,6 +2,7 @@
 
 use common_path::common_path;
 use derive_syn_parse::Parse;
+use git2::{FetchOptions, RemoteCallbacks, Repository};
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -26,6 +27,7 @@ use syn::{
     AttrStyle, Attribute, Error, File, Ident, ImplItem, Item, LitStr, Meta, Result, Token,
     TraitItem,
 };
+use tempfile::TempDir;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use toml::{Table, Value};
 use walkdir::WalkDir;
@@ -1047,8 +1049,18 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         println!("embed_internal_str ----> Failed to resolve caller_crate_root");
         return Ok(String::from(""));
     };
+
+    let file_path = if let Some(git_url) = &args.git_url {
+        let repo_path = clone_repo(git_url.value().as_str(), &root)?;
+        repo_path.join(args.file_path.value())
+    } else {
+        root.join(args.file_path.value())
+    };
+
+    println!("embed_internal_str ----> File path: {:?}", file_path);
+
     println!("embed_internal_str ----> Root resolved: {:?}", root);
-    let file_path = root.join(args.file_path.value());
+    // let file_path = root.join(args.file_path.value());
     println!("embed_internal_str ----> File path: {:?}", file_path);
     let source_code = match fs::read_to_string(&file_path) {
         Ok(src) => {
@@ -1336,6 +1348,51 @@ fn compile_markdown_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
         };
     }
     Ok(())
+}
+
+fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
+    // Create a temporary directory within the project root
+    let temp_dir = TempDir::new_in(project_root).map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!("Failed to create temporary directory: {}", e),
+        )
+    })?;
+
+    println!(
+        "Temporary directory created at: {}",
+        temp_dir.path().display()
+    );
+
+    // Set up fetch options
+    // let mut fetch_opts = FetchOptions::new();
+    // fetch_opts.depth(1); // Shallow clone (only latest commit)
+
+    // Set up remote callbacks
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.transfer_progress(|progress| {
+        println!(
+            "Transfer progress: {}/{} objects",
+            progress.received_objects(),
+            progress.total_objects()
+        );
+        true
+    });
+    // fetch_opts.remote_callbacks(callbacks);
+
+    // Clone the repository
+    let repo = Repository::clone(git_url, temp_dir.path()).map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!("Failed to clone repository: {}", e),
+        )
+    })?;
+
+    println!("Repository cloned successfully");
+
+    println!("Repository cloned to: {}", temp_dir.path().display());
+
+    Ok(temp_dir.into_path())
 }
 
 /// Docifies the specified markdown source string
