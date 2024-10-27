@@ -687,7 +687,7 @@ impl<'ast> SupportedVisitItem<'ast> for ItemVisitor {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum ResultStyle {
     Export,
     ExportContent,
@@ -942,34 +942,59 @@ fn source_excerpt<'a, T: ToTokens>(
 
 /// Inner version of [`embed_internal`] that just returns the result as a [`String`].
 fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<String> {
-    let args = parse2::<EmbedArgs>(tokens.into())?;
+    let args: EmbedArgs = parse2::<EmbedArgs>(tokens.into())?;
+    println!(
+        "embed_internal_str ----> args: file_path: {}, item_ident: {:?}",
+        args.file_path.value(),
+        args.item_ident.as_ref().map(|i| i.to_string())
+    );
     // return blank result if we can't properly resolve `caller_crate_root`
     let Some(root) = caller_crate_root() else {
+        println!("embed_internal_str ----> Failed to resolve caller_crate_root");
         return Ok(String::from(""));
     };
+    println!("embed_internal_str ----> Root resolved: {:?}", root);
     let file_path = root.join(args.file_path.value());
+    println!("embed_internal_str ----> File path: {:?}", file_path);
     let source_code = match fs::read_to_string(&file_path) {
-        Ok(src) => src,
-        Err(_) => {
+        Ok(src) => {
+            println!("embed_internal_str ----> Successfully read source file");
+            src
+        }
+        Err(e) => {
+            println!(
+                "embed_internal_str ----> Failed to read source file: {:?}",
+                e
+            );
             return Err(Error::new(
                 args.file_path.span(),
                 format!(
                     "Could not read the specified path '{}'.",
                     file_path.display(),
                 ),
-            ))
+            ));
         }
     };
     let parsed = source_code.parse::<TokenStream2>()?;
     let source_file = parse2::<File>(parsed)?;
+    println!("embed_internal_str ----> Parsed source file successfully");
 
     let output = if let Some(ident) = args.item_ident {
+        println!("embed_internal_str ----> Searching for item: {}", ident);
         let mut visitor = ItemVisitor {
             search: ident.clone(),
             results: Vec::new(),
         };
         visitor.visit_file(&source_file);
+        println!(
+            "embed_internal_str ----> Visitor results: {:?}",
+            visitor.results
+        );
         if visitor.results.is_empty() {
+            println!(
+                "embed_internal_str ----> No results found for item: {}",
+                ident
+            );
             return Err(Error::new(
                 ident.span(),
                 format!(
@@ -981,6 +1006,10 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         }
         let mut results: Vec<String> = Vec::new();
         for (item, style) in visitor.results {
+            println!(
+                "embed_internal_str ----> Processing item with style: {:?}",
+                style
+            );
             let excerpt = source_excerpt(&source_code, &item, style)?;
             let formatted = fix_indentation(excerpt);
             let example = into_example(formatted.as_str(), lang);
@@ -988,8 +1017,13 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         }
         results.join("\n")
     } else {
+        println!("embed_internal_str ----> No specific item requested, using entire source");
         into_example(source_code.as_str(), lang)
     };
+    println!(
+        "embed_internal_str ----> Final output length: {}",
+        output.len()
+    );
     Ok(output)
 }
 
