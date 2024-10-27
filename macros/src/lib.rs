@@ -9,6 +9,7 @@ use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use regex::Regex;
 use sha2::{Digest, Sha256};
+use std::net::TcpStream;
 use std::{
     cmp::min,
     collections::HashMap,
@@ -1508,6 +1509,7 @@ fn clone_repo(
 
     Ok(temp_dir.into_path())
 }
+
 fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
     let full_path = crate_root.join(file_path);
     println!(
@@ -1530,10 +1532,11 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
     let snippet_path = generate_snippet_path(&snippets_dir, file_path, item_ident);
     println!("Snippet path: {}", snippet_path.display());
 
-    let is_docs_rs = std::env::var("DOCS_RS").is_ok();
+    // Check internet connectivity by attempting to connect to a reliable host
+    let has_internet = TcpStream::connect("8.8.8.8:53").is_ok();
 
-    if is_docs_rs {
-        println!("Running on docs.rs, reading existing snippet");
+    if !has_internet {
+        println!("No internet connection, reading existing snippet");
         fs::read_to_string(&snippet_path).map_err(|e| {
             Error::new(
                 Span::call_site(),
@@ -1541,7 +1544,7 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
             )
         })
     } else {
-        println!("Local development, checking if snippet needs updating");
+        println!("Internet connection available, checking if snippet needs updating");
         let existing_content = fs::read_to_string(&snippet_path).ok();
         let new_content = extract_item_from_file(&full_path, item_ident)?;
 
