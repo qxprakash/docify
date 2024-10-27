@@ -2,7 +2,7 @@
 
 use common_path::common_path;
 use derive_syn_parse::Parse;
-use git2::{FetchOptions, RemoteCallbacks, Repository};
+use git2::{FetchOptions, Oid, RemoteCallbacks, Repository};
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -1048,7 +1048,12 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
     if let Some(git_url) = &args.git_url {
         println!("Detected git-based embedding");
-        let repo_path = clone_repo(git_url.value().as_str(), &crate_root, None)?;
+        let repo_path = clone_repo(
+            git_url.value().as_str(),
+            &crate_root,
+            None,
+            Some("4a9108d93525db4be232c5d03998fd7dadcd65c9"),
+        )?;
         let file_path = args.file_path.value().to_string();
 
         let full_path = repo_path.join(&file_path).to_string_lossy().into_owned();
@@ -1328,7 +1333,12 @@ fn compile_markdown_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
     Ok(())
 }
 
-fn clone_repo(git_url: &str, project_root: &PathBuf, branch_name: Option<&str>) -> Result<PathBuf> {
+fn clone_repo(
+    git_url: &str,
+    project_root: &PathBuf,
+    branch_name: Option<&str>,
+    commit_hash: Option<&str>,
+) -> Result<PathBuf> {
     // Create a temporary directory within the project root
     let temp_dir = TempDir::new_in(project_root).map_err(|e| {
         Error::new(
@@ -1364,7 +1374,7 @@ fn clone_repo(git_url: &str, project_root: &PathBuf, branch_name: Option<&str>) 
     println!("Repository cloned successfully");
     println!("Repository cloned to: {}", temp_dir.path().display());
 
-    if let Some(branch) = branch_name {
+    if branch_name.is_some() || commit_hash.is_some() {
         // Set up fetch options
         let mut fetch_opts = FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
@@ -1386,32 +1396,66 @@ fn clone_repo(git_url: &str, project_root: &PathBuf, branch_name: Option<&str>) 
                 )
             })?;
 
-        // Switch to the specified branch
-        let (object, reference) =
-            repo.revparse_ext(&format!("origin/{}", branch))
-                .map_err(|e| {
-                    Error::new(
-                        Span::call_site(),
-                        format!("Failed to find '{}' branch: {}", branch, e),
-                    )
-                })?;
-
-        repo.checkout_tree(&object, None).map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to checkout '{}' branch: {}", branch, e),
-            )
-        })?;
-
-        repo.set_head(&format!("refs/heads/{}", branch))
-            .map_err(|e| {
+        if let Some(commit) = commit_hash {
+            // Checkout the specific commit
+            let oid = Oid::from_str(commit).map_err(|e| {
                 Error::new(
                     Span::call_site(),
-                    format!("Failed to set HEAD to '{}' branch: {}", branch, e),
+                    format!("Invalid commit hash '{}': {}", commit, e),
                 )
             })?;
 
-        println!("Switched to '{}' branch", branch);
+            let commit_obj = repo.find_commit(oid).map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to find commit '{}': {}", commit, e),
+                )
+            })?;
+
+            repo.set_head_detached(commit_obj.id()).map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to set HEAD to commit '{}': {}", commit, e),
+                )
+            })?;
+
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+                .map_err(|e| {
+                    Error::new(
+                        Span::call_site(),
+                        format!("Failed to checkout commit '{}': {}", commit, e),
+                    )
+                })?;
+
+            println!("Checked out commit '{}'", commit);
+        } else if let Some(branch) = branch_name {
+            // Switch to the specified branch
+            let (object, reference) =
+                repo.revparse_ext(&format!("origin/{}", branch))
+                    .map_err(|e| {
+                        Error::new(
+                            Span::call_site(),
+                            format!("Failed to find '{}' branch: {}", branch, e),
+                        )
+                    })?;
+
+            repo.checkout_tree(&object, None).map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to checkout '{}' branch: {}", branch, e),
+                )
+            })?;
+
+            repo.set_head(&format!("refs/heads/{}", branch))
+                .map_err(|e| {
+                    Error::new(
+                        Span::call_site(),
+                        format!("Failed to set HEAD to '{}' branch: {}", branch, e),
+                    )
+                })?;
+
+            println!("Switched to '{}' branch", branch);
+        }
     } else {
         println!("Cloned default branch only");
     }
