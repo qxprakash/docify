@@ -1048,7 +1048,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
     if let Some(git_url) = &args.git_url {
         println!("Detected git-based embedding");
-        let repo_path = clone_repo(git_url.value().as_str(), &crate_root)?;
+        let repo_path = clone_repo(git_url.value().as_str(), &crate_root, None)?;
         let file_path = args.file_path.value().to_string();
 
         let full_path = repo_path.join(&file_path).to_string_lossy().into_owned();
@@ -1328,7 +1328,7 @@ fn compile_markdown_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
     Ok(())
 }
 
-fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
+fn clone_repo(git_url: &str, project_root: &PathBuf, branch_name: Option<&str>) -> Result<PathBuf> {
     // Create a temporary directory within the project root
     let temp_dir = TempDir::new_in(project_root).map_err(|e| {
         Error::new(
@@ -1353,11 +1353,7 @@ fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
         true
     });
 
-    // Set up fetch options
-    let mut fetch_opts = FetchOptions::new();
-    fetch_opts.remote_callbacks(callbacks);
-
-    // Clone the repository with all branches
+    // Clone the repository
     let repo = Repository::clone(git_url, temp_dir.path()).map_err(|e| {
         Error::new(
             Span::call_site(),
@@ -1368,50 +1364,57 @@ fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
     println!("Repository cloned successfully");
     println!("Repository cloned to: {}", temp_dir.path().display());
 
-    // Fetch all branches
-    let mut remote = repo.find_remote("origin").map_err(|e| {
-        Error::new(
-            Span::call_site(),
-            format!("Failed to find remote 'origin': {}", e),
-        )
-    })?;
+    if let Some(branch) = branch_name {
+        // Set up fetch options
+        let mut fetch_opts = FetchOptions::new();
+        fetch_opts.remote_callbacks(callbacks);
 
-    remote
-        .fetch(&["refs/heads/*:refs/heads/*"], Some(&mut fetch_opts), None)
-        .map_err(|e| {
+        // Fetch all branches
+        let mut remote = repo.find_remote("origin").map_err(|e| {
             Error::new(
                 Span::call_site(),
-                format!("Failed to fetch all branches: {}", e),
+                format!("Failed to find remote 'origin': {}", e),
             )
         })?;
 
-    // Switch to the "docif" branch
-    let branch_name = "docif";
-    let (object, reference) = repo
-        .revparse_ext(&format!("origin/{}", branch_name))
-        .map_err(|e| {
+        remote
+            .fetch(&["refs/heads/*:refs/heads/*"], Some(&mut fetch_opts), None)
+            .map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to fetch all branches: {}", e),
+                )
+            })?;
+
+        // Switch to the specified branch
+        let (object, reference) =
+            repo.revparse_ext(&format!("origin/{}", branch))
+                .map_err(|e| {
+                    Error::new(
+                        Span::call_site(),
+                        format!("Failed to find '{}' branch: {}", branch, e),
+                    )
+                })?;
+
+        repo.checkout_tree(&object, None).map_err(|e| {
             Error::new(
                 Span::call_site(),
-                format!("Failed to find '{}' branch: {}", branch_name, e),
+                format!("Failed to checkout '{}' branch: {}", branch, e),
             )
         })?;
 
-    repo.checkout_tree(&object, None).map_err(|e| {
-        Error::new(
-            Span::call_site(),
-            format!("Failed to checkout '{}' branch: {}", branch_name, e),
-        )
-    })?;
+        repo.set_head(&format!("refs/heads/{}", branch))
+            .map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to set HEAD to '{}' branch: {}", branch, e),
+                )
+            })?;
 
-    repo.set_head(&format!("refs/heads/{}", branch_name))
-        .map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to set HEAD to '{}' branch: {}", branch_name, e),
-            )
-        })?;
-
-    println!("Switched to '{}' branch", branch_name);
+        println!("Switched to '{}' branch", branch);
+    } else {
+        println!("Cloned default branch only");
+    }
 
     Ok(temp_dir.into_path())
 }
