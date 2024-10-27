@@ -2,12 +2,13 @@
 
 use common_path::common_path;
 use derive_syn_parse::Parse;
-use git2::{FetchOptions, RemoteCallbacks, Repository};
+use git2::{RemoteCallbacks, Repository};
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use regex::Regex;
+use sha2::{Digest, Sha256};
 use std::{
     cmp::min,
     collections::HashMap,
@@ -16,7 +17,6 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
-use syn::custom_keyword;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::{
@@ -1016,7 +1016,6 @@ fn source_excerpt<'a, T: ToTokens>(
         .join("\n"))
 }
 
-/// Inner version of [`embed_internal`] that just returns the result as a [`String`].
 fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<String> {
     let args: EmbedArgs = parse2::<EmbedArgs>(tokens.into())?;
     println!(
@@ -1034,9 +1033,9 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         ));
     }
 
-    // New check: If git_url is provided, ensure the path doesn't start with ".." or "../"
+    // Check if git_url is provided and path starts with ".." or "../"
     if args.git_url.is_some()
-        && (args.file_path.value().starts_with("..") || args.file_path.value().starts_with("../"))
+        && (args.file_path.value().starts_with("..") || args.file_path.value().starts_with("/"))
     {
         return Err(Error::new(
             args.file_path.span(),
@@ -1044,121 +1043,100 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         ));
     }
 
-    // return blank result if we can't properly resolve `caller_crate_root`
-    let Some(root) = caller_crate_root() else {
-        println!("embed_internal_str ----> Failed to resolve caller_crate_root");
-        return Ok(String::from(""));
-    };
+    let crate_root = caller_crate_root()
+        .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
 
-    let file_path = if let Some(git_url) = &args.git_url {
-        let repo_path = clone_repo(git_url.value().as_str(), &root)?;
-        repo_path.join(args.file_path.value())
+    if let Some(git_url) = &args.git_url {
+        println!("Detected git-based embedding");
+        let repo_path = clone_repo(git_url.value().as_str(), &crate_root)?;
+        let file_path = args.file_path.value().to_string();
+
+        let full_path = repo_path.join(&file_path).to_string_lossy().into_owned();
+        println!("embed_internal_str ----> Full path: {}", full_path);
+
+        let snippet_content = match &args.item_ident {
+            Some(ident) => {
+                println!("Generating snippet for item: {}", ident);
+                manage_snippet(&crate_root, &full_path, &ident.to_string())?
+            }
+            None => {
+                println!("No specific item requested, using entire file content");
+                fs::read_to_string(repo_path.join(&file_path)).map_err(|e| {
+                    Error::new(Span::call_site(), format!("Failed to read file: {}", e))
+                })?
+            }
+        };
+
+        let formatted = fix_indentation(&snippet_content);
+        let output = into_example(&formatted, lang);
+
+        println!("Successfully embedded git-based content");
+        println!(
+            "embed_internal_str ----> Final output length: {}",
+            output.len()
+        );
+
+        Ok(output)
     } else {
-        root.join(args.file_path.value())
-    };
+        println!("Detected local file embedding");
+        let file_path = crate_root.join(args.file_path.value());
+        println!("embed_internal_str ----> File path: {:?}", file_path);
 
-    println!("embed_internal_str ----> File path: {:?}", file_path);
-
-    println!("embed_internal_str ----> Root resolved: {:?}", root);
-    // let file_path = root.join(args.file_path.value());
-    println!("embed_internal_str ----> File path: {:?}", file_path);
-    let source_code = match fs::read_to_string(&file_path) {
-        Ok(src) => {
-            println!("embed_internal_str ----> Successfully read source file");
-            println!(
-                "embed_internal_str ----> Source code of the entire file: {}",
-                src
-            );
-            src
-        }
-        Err(e) => {
-            println!(
-                "embed_internal_str ----> Failed to read source file: {:?}",
-                e
-            );
-            return Err(Error::new(
+        let source_code = fs::read_to_string(&file_path).map_err(|e| {
+            Error::new(
                 args.file_path.span(),
                 format!(
-                    "Could not read the specified path '{}'.",
+                    "Could not read the specified path '{}': {}",
                     file_path.display(),
+                    e
                 ),
-            ));
-        }
-    };
-    let parsed = source_code.parse::<TokenStream2>()?;
-    println!("embed_internal_str ----> Parsed source code successfully");
-    println!(
-        "embed_internal_str ----> Parsed source code: removed comments and other cleanups {}",
-        parsed
-    );
-    let source_file: File = parse2::<File>(parsed)?;
-    println!("embed_internal_str ----> Parsed source file successfully");
-    println!(
-        "embed_internal_str ----> Source file items count: {}",
-        source_file.items.len()
-    );
-    println!(
-        "embed_internal_str ----> Source file attributes count: {}",
-        source_file.attrs.len()
-    );
-    if let Some(shebang) = &source_file.shebang {
-        println!(
-            "embed_internal_str ----> Source file has shebang: {}",
-            shebang
-        );
-    }
+            )
+        })?;
 
-    let output = if let Some(ident) = args.item_ident {
-        println!("embed_internal_str ----> Searching for item: {}", ident);
-        let mut visitor = ItemVisitor {
-            search: ident.clone(),
-            results: Vec::new(),
+        let source_file = syn::parse_file(&source_code)?;
+        println!("embed_internal_str ----> Parsed source file successfully");
+
+        let output = if let Some(ident) = args.item_ident.as_ref() {
+            println!("embed_internal_str ----> Searching for item: {}", ident);
+            let mut visitor = ItemVisitor {
+                search: ident.clone(),
+                results: Vec::new(),
+            };
+            visitor.visit_file(&source_file);
+
+            if visitor.results.is_empty() {
+                return Err(Error::new(
+                    ident.span(),
+                    format!(
+                        "Could not find docify export item '{}' in '{}'.",
+                        ident,
+                        file_path.display()
+                    ),
+                ));
+            }
+
+            let mut results: Vec<String> = Vec::new();
+            for (item, style) in visitor.results {
+                let excerpt = source_excerpt(&source_code, &item, style)?;
+                let formatted = fix_indentation(excerpt);
+                let example = into_example(formatted.as_str(), lang);
+                results.push(example);
+            }
+            results.join("\n")
+        } else {
+            println!("embed_internal_str ----> No specific item requested, using entire source");
+            into_example(source_code.as_str(), lang)
         };
-        visitor.visit_file(&source_file);
-        println!(
-            "embed_internal_str ----> Visitor results: {:?}",
-            visitor.results
-        );
-        if visitor.results.is_empty() {
-            println!(
-                "embed_internal_str ----> No results found for item: {}",
-                ident
-            );
-            return Err(Error::new(
-                ident.span(),
-                format!(
-                    "Could not find docify export item '{}' in '{}'.",
-                    ident,
-                    file_path.display(),
-                ),
-            ));
-        }
-        let mut results: Vec<String> = Vec::new();
-        for (item, style) in visitor.results {
-            println!(
-                "embed_internal_str ----> Processing item with style: {:?}",
-                style
-            );
-            let excerpt = source_excerpt(&source_code, &item, style)?;
-            println!("embed_internal_str ----> Excerpt: {}", excerpt);
-            let formatted = fix_indentation(excerpt);
-            println!("embed_internal_str ----> Formatted: {}", formatted);
-            let example = into_example(formatted.as_str(), lang);
-            println!("embed_internal_str ----> Example: {}", example);
-            results.push(example);
-        }
-        results.join("\n")
-    } else {
-        println!("embed_internal_str ----> No specific item requested, using entire source");
-        into_example(source_code.as_str(), lang)
-    };
-    println!(
-        "embed_internal_str ----> Final output length: {}",
-        output.len()
-    );
-    Ok(output)
-}
 
+        println!("Successfully embedded local content");
+        println!(
+            "embed_internal_str ----> Final output length: {}",
+            output.len()
+        );
+
+        Ok(output)
+    }
+}
 /// Internal implementation behind [`macro@embed`].
 fn embed_internal(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<TokenStream2> {
     let output = embed_internal_str(tokens, lang)?;
@@ -1393,6 +1371,126 @@ fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
     println!("Repository cloned to: {}", temp_dir.path().display());
 
     Ok(temp_dir.into_path())
+}
+fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
+    let full_path = crate_root.join(file_path);
+    println!(
+        "inside manage_snippet ----> Full path to crate root: {}",
+        crate_root.display()
+    );
+    println!(
+        "inside manage_snippet ----> Full path to file: {}",
+        full_path.display()
+    );
+
+    let snippets_dir = crate_root.join(".snippets");
+    fs::create_dir_all(&snippets_dir).map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!("Failed to create .snippets directory: {}", e),
+        )
+    })?;
+
+    let snippet_path = generate_snippet_path(&snippets_dir, file_path, item_ident);
+    println!("Snippet path: {}", snippet_path.display());
+
+    let is_docs_rs = std::env::var("DOCS_RS").is_ok();
+
+    if is_docs_rs {
+        println!("Running on docs.rs, reading existing snippet");
+        fs::read_to_string(&snippet_path).map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to read snippet file: {}", e),
+            )
+        })
+    } else {
+        println!("Local development, checking if snippet needs updating");
+        let existing_content = fs::read_to_string(&snippet_path).ok();
+        let new_content = extract_item_from_file(&full_path, item_ident)?;
+
+        if existing_content.as_ref().map(|c| hash_content(c)) != Some(hash_content(&new_content)) {
+            println!("Updating snippet file");
+            fs::write(&snippet_path, &new_content).map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to write snippet file: {}", e),
+                )
+            })?;
+        } else {
+            println!("Snippet is up to date");
+        }
+
+        Ok(new_content)
+    }
+}
+
+fn generate_snippet_path(snippets_dir: &Path, file_path: &str, item_ident: &str) -> PathBuf {
+    println!(
+        "inside generate_snippet_path ----> Snippets directory: {}",
+        snippets_dir.display()
+    );
+    println!(
+        "inside generate_snippet_path ----> File path: {}",
+        file_path
+    );
+    println!(
+        "inside generate_snippet_path ----> Item ident: {}",
+        item_ident
+    );
+    let path = PathBuf::from(file_path);
+    let file_name = path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("unknown");
+    snippets_dir.join(format!(".docify-snippet-{}-{}", file_name, item_ident))
+}
+fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> {
+    println!(
+        "Extracting item '{}' from '{}'",
+        item_ident,
+        file_path.display()
+    );
+
+    let source_code = fs::read_to_string(file_path).map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!(
+                "Could not read the specified path '{}': {}",
+                file_path.display(),
+                e
+            ),
+        )
+    })?;
+
+    let mut visitor = ItemVisitor {
+        search: syn::parse_str(item_ident)?,
+        results: Vec::new(),
+    };
+    visitor.visit_file(&syn::parse_file(&source_code)?);
+
+    if visitor.results.is_empty() {
+        return Err(Error::new(
+            Span::call_site(),
+            format!(
+                "Could not find docify export item '{}' in '{}'.",
+                item_ident,
+                file_path.display()
+            ),
+        ));
+    }
+
+    println!("Successfully extracted item from file");
+    let (item, style) = visitor.results.first().unwrap();
+    source_excerpt(&source_code, item, *style)
+}
+
+fn hash_content(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content);
+    let result = format!("{:x}", hasher.finalize());
+    println!("Content hash: {}", result);
+    result
 }
 
 /// Docifies the specified markdown source string
