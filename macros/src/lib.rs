@@ -2,7 +2,7 @@
 
 use common_path::common_path;
 use derive_syn_parse::Parse;
-use git2::{RemoteCallbacks, Repository};
+use git2::{FetchOptions, RemoteCallbacks, Repository};
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -1342,10 +1342,6 @@ fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
         temp_dir.path().display()
     );
 
-    // Set up fetch options
-    // let mut fetch_opts = FetchOptions::new();
-    // fetch_opts.depth(1); // Shallow clone (only latest commit)
-
     // Set up remote callbacks
     let mut callbacks = RemoteCallbacks::new();
     callbacks.transfer_progress(|progress| {
@@ -1356,9 +1352,12 @@ fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
         );
         true
     });
-    // fetch_opts.remote_callbacks(callbacks);
 
-    // Clone the repository
+    // Set up fetch options
+    let mut fetch_opts = FetchOptions::new();
+    fetch_opts.remote_callbacks(callbacks);
+
+    // Clone the repository with all branches
     let repo = Repository::clone(git_url, temp_dir.path()).map_err(|e| {
         Error::new(
             Span::call_site(),
@@ -1367,8 +1366,52 @@ fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
     })?;
 
     println!("Repository cloned successfully");
-
     println!("Repository cloned to: {}", temp_dir.path().display());
+
+    // Fetch all branches
+    let mut remote = repo.find_remote("origin").map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!("Failed to find remote 'origin': {}", e),
+        )
+    })?;
+
+    remote
+        .fetch(&["refs/heads/*:refs/heads/*"], Some(&mut fetch_opts), None)
+        .map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to fetch all branches: {}", e),
+            )
+        })?;
+
+    // Switch to the "docif" branch
+    let branch_name = "docif";
+    let (object, reference) = repo
+        .revparse_ext(&format!("origin/{}", branch_name))
+        .map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to find '{}' branch: {}", branch_name, e),
+            )
+        })?;
+
+    repo.checkout_tree(&object, None).map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!("Failed to checkout '{}' branch: {}", branch_name, e),
+        )
+    })?;
+
+    repo.set_head(&format!("refs/heads/{}", branch_name))
+        .map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to set HEAD to '{}' branch: {}", branch_name, e),
+            )
+        })?;
+
+    println!("Switched to '{}' branch", branch_name);
 
     Ok(temp_dir.into_path())
 }
