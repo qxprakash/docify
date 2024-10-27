@@ -15,6 +15,9 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
+use syn::custom_keyword;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
 use syn::{
     parse2,
     spanned::Spanned,
@@ -541,12 +544,83 @@ pub fn embed_run(tokens: TokenStream) -> TokenStream {
 }
 
 /// Used to parse args for `docify::embed!(..)`
-#[derive(Parse)]
+/// Used to parse args for `docify::embed!(..)`
+/// Used to parse args for `docify::embed!(..)`
+
+mod kw {
+    syn::custom_keyword!(git);
+    syn::custom_keyword!(path);
+    syn::custom_keyword!(item);
+}
+
 struct EmbedArgs {
+    git_url: Option<LitStr>,
     file_path: LitStr,
-    #[prefix(Option<Token![,]> as comma)]
-    #[parse_if(comma.is_some())]
     item_ident: Option<Ident>,
+}
+
+impl Parse for EmbedArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        println!("impl Parse for EmbedArgs: ----> Starting parse function");
+        let mut git_url = None;
+        let mut file_path = None;
+        let mut item_ident = None;
+
+        while !input.is_empty() {
+            println!("impl Parse for EmbedArgs: ----> Entering loop iteration");
+            let lookahead = input.lookahead1();
+            if lookahead.peek(kw::git) {
+                println!("impl Parse for EmbedArgs: ----> Parsing git URL");
+                input.parse::<kw::git>()?;
+                input.parse::<Token![=]>()?;
+                git_url = Some(input.parse::<LitStr>()?);
+                println!(
+                    "impl Parse for EmbedArgs: ----> Git URL parsed: {}",
+                    git_url.as_ref().map(LitStr::value).unwrap_or_default()
+                );
+            } else if lookahead.peek(kw::path) {
+                println!("impl Parse for EmbedArgs: ----> Parsing file path");
+                input.parse::<kw::path>()?;
+                input.parse::<Token![=]>()?;
+                file_path = Some(input.parse::<LitStr>()?);
+                println!(
+                    "impl Parse for EmbedArgs: ----> File path parsed: {}",
+                    file_path.as_ref().map(LitStr::value).unwrap_or_default()
+                );
+            } else if lookahead.peek(kw::item) {
+                println!("impl Parse for EmbedArgs: ----> Parsing item identifier");
+                input.parse::<kw::item>()?;
+                input.parse::<Token![=]>()?;
+                item_ident = Some(input.parse::<Ident>()?);
+                println!(
+                    "impl Parse for EmbedArgs: ----> Item identifier parsed: {:?}",
+                    item_ident
+                );
+            } else {
+                println!("impl Parse for EmbedArgs: ----> Encountered unexpected token");
+                return Err(lookahead.error());
+            }
+
+            if !input.is_empty() {
+                println!("impl Parse for EmbedArgs: ----> Parsing comma separator");
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        println!("impl Parse for EmbedArgs: ----> Finished parsing all arguments");
+        let file_path = file_path.ok_or_else(|| input.error("expected `path` argument"))?;
+        println!(
+            "impl Parse for EmbedArgs: ----> Final file path: {}",
+            file_path.value()
+        );
+
+        println!("impl Parse for EmbedArgs: ----> Returning parsed EmbedArgs");
+        Ok(EmbedArgs {
+            git_url,
+            file_path,
+            item_ident,
+        })
+    }
 }
 
 impl ToTokens for EmbedArgs {
@@ -944,7 +1018,8 @@ fn source_excerpt<'a, T: ToTokens>(
 fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<String> {
     let args: EmbedArgs = parse2::<EmbedArgs>(tokens.into())?;
     println!(
-        "embed_internal_str ----> args: file_path: {}, item_ident: {:?}",
+        "embed_internal_str ----> args: git_url: {:?}, file_path: {}, item_ident: {:?}",
+        args.git_url.as_ref().map(|url| url.value()),
         args.file_path.value(),
         args.item_ident.as_ref().map(|i| i.to_string())
     );
