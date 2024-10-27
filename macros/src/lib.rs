@@ -1031,6 +1031,17 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             "You can only embed files which are present in the current crate. For any other files, please provide the git_url to embed."
         ));
     }
+
+    // New check: If git_url is provided, ensure the path doesn't start with ".." or "../"
+    if args.git_url.is_some()
+        && (args.file_path.value().starts_with("..") || args.file_path.value().starts_with("../"))
+    {
+        return Err(Error::new(
+            args.file_path.span(),
+            "When using git_url, please provide the correct file path in your git source. The path should not start with '..' or '../'."
+        ));
+    }
+
     // return blank result if we can't properly resolve `caller_crate_root`
     let Some(root) = caller_crate_root() else {
         println!("embed_internal_str ----> Failed to resolve caller_crate_root");
