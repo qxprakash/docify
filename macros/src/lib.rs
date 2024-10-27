@@ -469,7 +469,7 @@ fn export_internal(
 ///
 /// Which will expand to the `my_example` item in `path/to/file.rs` being embedded in a rust
 /// doc example marked with `ignore`. If you want to have your example actually run in rust
-/// docs as well, you should use [`docify::embed_run!(..)`](`macro@embed_run`).
+/// docs as well, you should use [`docify::embed_run!(..)`](`macro@embed_run`) instead.
 ///
 /// ### Arguments
 /// - `source_path`: the file path (relative to the current crate root) that contains the item
@@ -502,7 +502,6 @@ fn export_internal(
 /// ```ignore
 /// /// Here is a cool example module:
 /// #[doc = docify::embed!("examples/my_example.rs")]
-/// struct DocumentedItem
 /// ```
 ///
 /// You are also free to embed multiple examples in the same set of doc comments:
@@ -552,79 +551,103 @@ pub fn embed_run(tokens: TokenStream) -> TokenStream {
 mod kw {
     syn::custom_keyword!(git);
     syn::custom_keyword!(path);
+    syn::custom_keyword!(branch);
+    syn::custom_keyword!(commit);
+    syn::custom_keyword!(tag);
     syn::custom_keyword!(item);
 }
 
 struct EmbedArgs {
     git_url: Option<LitStr>,
     file_path: LitStr,
+    branch_name: Option<LitStr>,
+    commit_hash: Option<LitStr>,
+    tag_name: Option<LitStr>,
     item_ident: Option<Ident>,
 }
-
 impl Parse for EmbedArgs {
     fn parse(input: ParseStream) -> Result<Self> {
-        println!("impl Parse for EmbedArgs: ----> Starting parse function");
         let mut git_url = None;
         let mut file_path = None;
+        let mut branch_name = None;
+        let mut commit_hash = None;
+        let mut tag_name = None;
         let mut item_ident = None;
 
         while !input.is_empty() {
-            println!("impl Parse for EmbedArgs: ----> Entering loop iteration");
             let lookahead = input.lookahead1();
+
             if lookahead.peek(kw::git) {
-                println!("impl Parse for EmbedArgs: ----> Parsing git URL");
-                input.parse::<kw::git>()?;
-                input.parse::<Token![=]>()?;
-                git_url = Some(input.parse::<LitStr>()?);
-                println!(
-                    "impl Parse for EmbedArgs: ----> Git URL parsed: {}",
-                    git_url.as_ref().map(LitStr::value).unwrap_or_default()
-                );
+                let _: kw::git = input.parse()?;
+                let _: Token![=] = input.parse()?;
+                git_url = Some(input.parse()?);
             } else if lookahead.peek(kw::path) {
-                println!("impl Parse for EmbedArgs: ----> Parsing file path");
-                input.parse::<kw::path>()?;
-                input.parse::<Token![=]>()?;
-                file_path = Some(input.parse::<LitStr>()?);
-                println!(
-                    "impl Parse for EmbedArgs: ----> File path parsed: {}",
-                    file_path.as_ref().map(LitStr::value).unwrap_or_default()
-                );
+                let _: kw::path = input.parse()?;
+                let _: Token![=] = input.parse()?;
+                file_path = Some(input.parse()?);
+            } else if lookahead.peek(kw::branch) {
+                let _: kw::branch = input.parse()?;
+                let _: Token![=] = input.parse()?;
+                branch_name = Some(input.parse()?);
+            } else if lookahead.peek(kw::commit) {
+                let _: kw::commit = input.parse()?;
+                let _: Token![=] = input.parse()?;
+                commit_hash = Some(input.parse()?);
+            } else if lookahead.peek(kw::tag) {
+                let _: kw::tag = input.parse()?;
+                let _: Token![=] = input.parse()?;
+                tag_name = Some(input.parse()?);
             } else if lookahead.peek(kw::item) {
-                println!("impl Parse for EmbedArgs: ----> Parsing item identifier");
-                input.parse::<kw::item>()?;
-                input.parse::<Token![=]>()?;
-                item_ident = Some(input.parse::<Ident>()?);
-                println!(
-                    "impl Parse for EmbedArgs: ----> Item identifier parsed: {:?}",
-                    item_ident
-                );
+                let _: kw::item = input.parse()?;
+                let _: Token![=] = input.parse()?;
+                item_ident = Some(input.parse()?);
             } else {
-                println!("impl Parse for EmbedArgs: ----> Encountered unexpected token");
                 return Err(lookahead.error());
             }
 
+            // Parse optional comma after each parameter
             if !input.is_empty() {
-                println!("impl Parse for EmbedArgs: ----> Parsing comma separator");
-                input.parse::<Token![,]>()?;
+                let _: Token![,] = input.parse()?;
             }
         }
 
-        println!("impl Parse for EmbedArgs: ----> Finished parsing all arguments");
-        let file_path = file_path.ok_or_else(|| input.error("expected `path` argument"))?;
-        println!(
-            "impl Parse for EmbedArgs: ----> Final file path: {}",
-            file_path.value()
-        );
+        // Validate required parameters
+        let file_path =
+            file_path.ok_or_else(|| Error::new(Span::call_site(), "path parameter is required"))?;
 
-        println!("impl Parse for EmbedArgs: ----> Returning parsed EmbedArgs");
+        // Validate that only one of branch, commit, or tag is specified
+        let ref_count = [&branch_name, &commit_hash, &tag_name]
+            .iter()
+            .filter(|&&x| x.is_some())
+            .count();
+
+        if ref_count > 1 {
+            return Err(Error::new(
+                Span::call_site(),
+                "Only one of branch, commit, or tag can be specified",
+            ));
+        }
+
+        // Validate that branch, commit, or tag are only used with git parameter
+        if git_url.is_none()
+            && (branch_name.is_some() || commit_hash.is_some() || tag_name.is_some())
+        {
+            return Err(Error::new(
+                Span::call_site(),
+                "branch, commit, or tag can only be used when git parameter is specified",
+            ));
+        }
+
         Ok(EmbedArgs {
             git_url,
             file_path,
+            branch_name,
+            commit_hash,
+            tag_name,
             item_ident,
         })
     }
 }
-
 impl ToTokens for EmbedArgs {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
         tokens.extend(self.file_path.to_token_stream());
@@ -1051,9 +1074,9 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         let repo_path = clone_repo(
             git_url.value().as_str(),
             &crate_root,
-            None,
-            Some("b1f8b7b6349d71293d3f4d67e23ddb4374812100"),
-            None,
+            args.branch_name.as_ref().map(|b| b.value()),
+            args.commit_hash.as_ref().map(|c| c.value()),
+            args.tag_name.as_ref().map(|t| t.value()),
         )?;
         let file_path = args.file_path.value().to_string();
 
@@ -1333,15 +1356,13 @@ fn compile_markdown_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
     }
     Ok(())
 }
-
 fn clone_repo(
     git_url: &str,
     project_root: &PathBuf,
-    branch_name: Option<&str>,
-    commit_hash: Option<&str>,
-    tag_name: Option<&str>,
+    branch_name: Option<String>,
+    commit_hash: Option<String>,
+    tag_name: Option<String>,
 ) -> Result<PathBuf> {
-    // Create a temporary directory within the project root
     let temp_dir = TempDir::new_in(project_root).map_err(|e| {
         Error::new(
             Span::call_site(),
@@ -1354,7 +1375,6 @@ fn clone_repo(
         temp_dir.path().display()
     );
 
-    // Set up remote callbacks
     let mut callbacks = RemoteCallbacks::new();
     callbacks.transfer_progress(|progress| {
         println!(
@@ -1365,7 +1385,6 @@ fn clone_repo(
         true
     });
 
-    // Clone the repository
     let repo = Repository::clone(git_url, temp_dir.path()).map_err(|e| {
         Error::new(
             Span::call_site(),
@@ -1377,11 +1396,9 @@ fn clone_repo(
     println!("Repository cloned to: {}", temp_dir.path().display());
 
     if branch_name.is_some() || commit_hash.is_some() || tag_name.is_some() {
-        // Set up fetch options
         let mut fetch_opts = FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
 
-        // Fetch all branches and tags
         let mut remote = repo.find_remote("origin").map_err(|e| {
             Error::new(
                 Span::call_site(),
@@ -1402,8 +1419,7 @@ fn clone_repo(
                 )
             })?;
 
-        if let Some(tag) = tag_name {
-            // Checkout the specific tag
+        if let Some(tag) = tag_name.as_deref() {
             let (object, reference) =
                 repo.revparse_ext(&format!("refs/tags/{}", tag))
                     .map_err(|e| {
@@ -1428,8 +1444,7 @@ fn clone_repo(
             })?;
 
             println!("Checked out tag '{}'", tag);
-        } else if let Some(commit) = commit_hash {
-            // Checkout the specific commit
+        } else if let Some(commit) = commit_hash.as_deref() {
             let oid = Oid::from_str(commit).map_err(|e| {
                 Error::new(
                     Span::call_site(),
@@ -1460,8 +1475,7 @@ fn clone_repo(
                 })?;
 
             println!("Checked out commit '{}'", commit);
-        } else if let Some(branch) = branch_name {
-            // Switch to the specified branch
+        } else if let Some(branch) = branch_name.as_deref() {
             let (object, reference) =
                 repo.revparse_ext(&format!("origin/{}", branch))
                     .map_err(|e| {
