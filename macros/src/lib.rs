@@ -2,7 +2,7 @@
 
 use common_path::common_path;
 use derive_syn_parse::Parse;
-use git2::{FetchOptions, Oid, RemoteCallbacks, Repository};
+use git2::{FetchOptions, ObjectType, Oid, RemoteCallbacks, Repository};
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -1052,7 +1052,8 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             git_url.value().as_str(),
             &crate_root,
             None,
-            Some("4a9108d93525db4be232c5d03998fd7dadcd65c9"),
+            Some("b1f8b7b6349d71293d3f4d67e23ddb4374812100"),
+            None,
         )?;
         let file_path = args.file_path.value().to_string();
 
@@ -1338,6 +1339,7 @@ fn clone_repo(
     project_root: &PathBuf,
     branch_name: Option<&str>,
     commit_hash: Option<&str>,
+    tag_name: Option<&str>,
 ) -> Result<PathBuf> {
     // Create a temporary directory within the project root
     let temp_dir = TempDir::new_in(project_root).map_err(|e| {
@@ -1374,12 +1376,12 @@ fn clone_repo(
     println!("Repository cloned successfully");
     println!("Repository cloned to: {}", temp_dir.path().display());
 
-    if branch_name.is_some() || commit_hash.is_some() {
+    if branch_name.is_some() || commit_hash.is_some() || tag_name.is_some() {
         // Set up fetch options
         let mut fetch_opts = FetchOptions::new();
         fetch_opts.remote_callbacks(callbacks);
 
-        // Fetch all branches
+        // Fetch all branches and tags
         let mut remote = repo.find_remote("origin").map_err(|e| {
             Error::new(
                 Span::call_site(),
@@ -1388,15 +1390,45 @@ fn clone_repo(
         })?;
 
         remote
-            .fetch(&["refs/heads/*:refs/heads/*"], Some(&mut fetch_opts), None)
+            .fetch(
+                &["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"],
+                Some(&mut fetch_opts),
+                None,
+            )
             .map_err(|e| {
                 Error::new(
                     Span::call_site(),
-                    format!("Failed to fetch all branches: {}", e),
+                    format!("Failed to fetch all branches and tags: {}", e),
                 )
             })?;
 
-        if let Some(commit) = commit_hash {
+        if let Some(tag) = tag_name {
+            // Checkout the specific tag
+            let (object, reference) =
+                repo.revparse_ext(&format!("refs/tags/{}", tag))
+                    .map_err(|e| {
+                        Error::new(
+                            Span::call_site(),
+                            format!("Failed to find tag '{}': {}", tag, e),
+                        )
+                    })?;
+
+            repo.checkout_tree(&object, None).map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to checkout tag '{}': {}", tag, e),
+                )
+            })?;
+
+            repo.set_head_detached(object.id()).map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to set HEAD to tag '{}': {}", tag, e),
+                )
+            })?;
+
+            println!("Checked out tag '{}'", tag);
+        } else if let Some(commit) = commit_hash {
             // Checkout the specific commit
             let oid = Oid::from_str(commit).map_err(|e| {
                 Error::new(
@@ -1462,7 +1494,6 @@ fn clone_repo(
 
     Ok(temp_dir.into_path())
 }
-
 fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
     let full_path = crate_root.join(file_path);
     println!(
