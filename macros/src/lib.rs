@@ -1372,6 +1372,7 @@ fn clone_repo(git_url: &str, project_root: &PathBuf) -> Result<PathBuf> {
 
     Ok(temp_dir.into_path())
 }
+
 fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
     let full_path = crate_root.join(file_path);
     println!(
@@ -1410,7 +1411,7 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
         let new_content = extract_item_from_file(&full_path, item_ident)?;
 
         if existing_content.as_ref().map(|c| hash_content(c)) != Some(hash_content(&new_content)) {
-            println!("Updating snippet file");
+            println!("inside manage_snippet ----> Updating snippet file");
             fs::write(&snippet_path, &new_content).map_err(|e| {
                 Error::new(
                     Span::call_site(),
@@ -1418,7 +1419,7 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
                 )
             })?;
         } else {
-            println!("Snippet is up to date");
+            println!("inside manage_snippet ----> Snippet is up to date");
         }
 
         Ok(new_content)
@@ -1447,7 +1448,7 @@ fn generate_snippet_path(snippets_dir: &Path, file_path: &str, item_ident: &str)
 }
 fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> {
     println!(
-        "Extracting item '{}' from '{}'",
+        "inside extract_item_from_file ----> Extracting item '{}' from '{}'",
         item_ident,
         file_path.display()
     );
@@ -1463,12 +1464,20 @@ fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> 
         )
     })?;
 
+    println!(
+        "inside extract_item_from_file ----> Source code: {}",
+        source_code
+    );
+
     let mut visitor = ItemVisitor {
         search: syn::parse_str(item_ident)?,
         results: Vec::new(),
     };
     visitor.visit_file(&syn::parse_file(&source_code)?);
-
+    println!(
+        "inside extract_item_from_file ----> Visitor results: {:?}",
+        visitor.results
+    );
     if visitor.results.is_empty() {
         return Err(Error::new(
             Span::call_site(),
