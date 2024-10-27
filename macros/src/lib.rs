@@ -959,6 +959,10 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
     let source_code = match fs::read_to_string(&file_path) {
         Ok(src) => {
             println!("embed_internal_str ----> Successfully read source file");
+            println!(
+                "embed_internal_str ----> Source code of the entire file: {}",
+                src
+            );
             src
         }
         Err(e) => {
@@ -976,8 +980,27 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         }
     };
     let parsed = source_code.parse::<TokenStream2>()?;
-    let source_file = parse2::<File>(parsed)?;
+    println!("embed_internal_str ----> Parsed source code successfully");
+    println!(
+        "embed_internal_str ----> Parsed source code: removed comments and other cleanups {}",
+        parsed
+    );
+    let source_file: File = parse2::<File>(parsed)?;
     println!("embed_internal_str ----> Parsed source file successfully");
+    println!(
+        "embed_internal_str ----> Source file items count: {}",
+        source_file.items.len()
+    );
+    println!(
+        "embed_internal_str ----> Source file attributes count: {}",
+        source_file.attrs.len()
+    );
+    if let Some(shebang) = &source_file.shebang {
+        println!(
+            "embed_internal_str ----> Source file has shebang: {}",
+            shebang
+        );
+    }
 
     let output = if let Some(ident) = args.item_ident {
         println!("embed_internal_str ----> Searching for item: {}", ident);
@@ -1011,8 +1034,11 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                 style
             );
             let excerpt = source_excerpt(&source_code, &item, style)?;
+            println!("embed_internal_str ----> Excerpt: {}", excerpt);
             let formatted = fix_indentation(excerpt);
+            println!("embed_internal_str ----> Formatted: {}", formatted);
             let example = into_example(formatted.as_str(), lang);
+            println!("embed_internal_str ----> Example: {}", example);
             results.push(example);
         }
         results.join("\n")
