@@ -521,7 +521,7 @@ fn export_internal(
 /// and so they do not need to be run as well in the context where they are being embedded. If
 /// for whatever reason you _do_ want to also run an embedded example as a doc example, you can
 /// use [`docify::embed_run!(..)`](`macro@embed_run`) which removes the `ignore` tag from the
-/// generated example but otherwise functions exactly like `#[docify::embed!(..)]` in every
+/// generated example but otherwise functions exactly like `#[docify::embed!(..)` in every
 /// way.
 ///
 /// Output should match `rustfmt` output exactly.
@@ -1074,6 +1074,28 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
 
     if let Some(git_url) = &args.git_url {
+        let has_internet = check_internet_connectivity();
+
+        if !has_internet {
+            if !has_internet {
+                println!("No internet connection detected. Using cached snippet if available in the snippets dir.");
+                // Get content from snippet and process it
+                let content = manage_snippet(
+                    &crate_root,
+                    &args.file_path.value(),
+                    args.item_ident
+                        .as_ref()
+                        .map(|i| i.to_string())
+                        .unwrap_or_default()
+                        .as_str(),
+                )?;
+
+                // Fix indentation and process the content
+                let fixed = fix_indentation(&content);
+                return Ok(into_example(&fixed, lang));
+            }
+        }
+
         println!("Detected git-based embedding");
         let repo_path = clone_repo(
             git_url.value().as_str(),
@@ -1514,17 +1536,10 @@ fn clone_repo(
 }
 
 fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
-    let full_path = crate_root.join(file_path);
-    println!(
-        "inside manage_snippet ----> Full path to crate root: {}",
-        crate_root.display()
-    );
-    println!(
-        "inside manage_snippet ----> Full path to file: {}",
-        full_path.display()
-    );
-
     let snippets_dir = crate_root.join(".snippets");
+    println!("Snippets directory: {}", snippets_dir.display());
+
+    // Ensure snippets directory exists
     fs::create_dir_all(&snippets_dir).map_err(|e| {
         Error::new(
             Span::call_site(),
@@ -1535,9 +1550,7 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
     let snippet_path = generate_snippet_path(&snippets_dir, file_path, item_ident);
     println!("Snippet path: {}", snippet_path.display());
 
-    // Check internet connectivity by attempting to connect to a reliable host
     let has_internet = check_internet_connectivity();
-
     println!(
         "Internet connectivity: {}",
         if has_internet {
@@ -1548,20 +1561,36 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
     );
 
     if !has_internet {
-        println!("No internet connection, reading existing snippet");
-        fs::read_to_string(&snippet_path).map_err(|e| {
-            Error::new(
+        println!("No internet connection, attempting to read from cached snippet");
+        // Try to read from the snippet file
+        match fs::read_to_string(&snippet_path) {
+            Ok(content) => {
+                println!("Successfully read content from cached snippet");
+                Ok(content)
+            }
+            Err(e) => Err(Error::new(
                 Span::call_site(),
-                format!("Failed to read snippet file: {}", e),
-            )
-        })
+                format!(
+                    "No internet connection and failed to read cached snippet at {}: {}.
+                        Please ensure you have internet connectivity for the first run.",
+                    snippet_path.display(),
+                    e
+                ),
+            )),
+        }
     } else {
-        println!("Internet connection available, checking if snippet needs updating");
+        // Internet is available, proceed with full path checking and content updating
+        let full_path = crate_root.join(file_path);
+        println!(
+            "Internet available, checking file at: {}",
+            full_path.display()
+        );
+
         let existing_content = fs::read_to_string(&snippet_path).ok();
         let new_content = extract_item_from_file(&full_path, item_ident)?;
 
         if existing_content.as_ref().map(|c| hash_content(c)) != Some(hash_content(&new_content)) {
-            println!("inside manage_snippet ----> Updating snippet file");
+            println!("Updating snippet file with new content");
             fs::write(&snippet_path, &new_content).map_err(|e| {
                 Error::new(
                     Span::call_site(),
@@ -1569,7 +1598,7 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
                 )
             })?;
         } else {
-            println!("inside manage_snippet ----> Snippet is up to date");
+            println!("Snippet is up to date");
         }
 
         Ok(new_content)
