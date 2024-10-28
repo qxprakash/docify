@@ -572,6 +572,16 @@ impl Parse for EmbedArgs {
         // First try to parse as positional arguments
         if !input.peek(kw::git) && !input.peek(kw::path) {
             let file_path: LitStr = input.parse()?;
+
+            // Validate that file_path is not a URL
+            if file_path.value().starts_with("http://") || file_path.value().starts_with("https://")
+            {
+                return Err(Error::new(
+                    file_path.span(),
+                    "First positional argument must be a file path, not a URL. For git URLs, use named arguments: git = \"url\", path = \"file_path\"",
+                ));
+            }
+
             let item_ident = if input.peek(Token![,]) {
                 input.parse::<Token![,]>()?;
                 Some(input.parse()?)
