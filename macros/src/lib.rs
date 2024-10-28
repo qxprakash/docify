@@ -10,6 +10,7 @@ use quote::{quote, ToTokens};
 use regex::Regex;
 use sha2::{Digest, Sha256};
 use std::net::TcpStream;
+use std::time::Duration;
 use std::{
     cmp::min,
     collections::HashMap,
@@ -1050,7 +1051,9 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
     );
 
     // Check if the file_path starts with "../" and git_url is not provided
-    if args.file_path.value().starts_with("../") && args.git_url.is_none() {
+    if (args.file_path.value().starts_with("..") || args.file_path.value().starts_with("/"))
+        && args.git_url.is_none()
+    {
         return Err(Error::new(
             args.file_path.span(),
             "You can only embed files which are present in the current crate. For any other files, please provide the git_url to embed."
@@ -1533,7 +1536,16 @@ fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Resul
     println!("Snippet path: {}", snippet_path.display());
 
     // Check internet connectivity by attempting to connect to a reliable host
-    let has_internet = TcpStream::connect("8.8.8.8:53").is_ok();
+    let has_internet = check_internet_connectivity();
+
+    println!(
+        "Internet connectivity: {}",
+        if has_internet {
+            "Available"
+        } else {
+            "Not available"
+        }
+    );
 
     if !has_internet {
         println!("No internet connection, reading existing snippet");
@@ -1640,6 +1652,31 @@ fn hash_content(content: &str) -> String {
     result
 }
 
+/// Checks if there is an active internet connection by attempting to connect to multiple reliable hosts
+fn check_internet_connectivity() -> bool {
+    // List of reliable hosts and ports to try
+    let hosts = [
+        ("8.8.8.8", 53),        // Google DNS
+        ("1.1.1.1", 53),        // Cloudflare DNS
+        ("208.67.222.222", 53), // OpenDNS
+    ];
+
+    // Set a timeout for connection attempts
+    let timeout = Duration::from_secs(1);
+
+    for &(host, port) in hosts.iter() {
+        if let Ok(stream) = TcpStream::connect((host, port)) {
+            // Set the timeout for read/write operations
+            if stream.set_read_timeout(Some(timeout)).is_ok()
+                && stream.set_write_timeout(Some(timeout)).is_ok()
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
 /// Docifies the specified markdown source string
 fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
     let source = source.as_ref();
