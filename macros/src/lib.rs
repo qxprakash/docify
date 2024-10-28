@@ -558,7 +558,6 @@ mod kw {
     syn::custom_keyword!(tag);
     syn::custom_keyword!(item);
 }
-
 struct EmbedArgs {
     git_url: Option<LitStr>,
     file_path: LitStr,
@@ -567,8 +566,30 @@ struct EmbedArgs {
     tag_name: Option<LitStr>,
     item_ident: Option<Ident>,
 }
+
 impl Parse for EmbedArgs {
     fn parse(input: ParseStream) -> Result<Self> {
+        // First try to parse as positional arguments
+        if !input.peek(kw::git) && !input.peek(kw::path) {
+            let file_path: LitStr = input.parse()?;
+            let item_ident = if input.peek(Token![,]) {
+                input.parse::<Token![,]>()?;
+                Some(input.parse()?)
+            } else {
+                None
+            };
+
+            return Ok(EmbedArgs {
+                git_url: None,
+                file_path,
+                branch_name: None,
+                commit_hash: None,
+                tag_name: None,
+                item_ident,
+            });
+        }
+
+        // If not positional, parse as named arguments
         let mut git_url = None;
         let mut file_path = None;
         let mut branch_name = None;
@@ -607,7 +628,6 @@ impl Parse for EmbedArgs {
                 return Err(lookahead.error());
             }
 
-            // Parse optional comma after each parameter
             if !input.is_empty() {
                 let _: Token![,] = input.parse()?;
             }
@@ -650,6 +670,7 @@ impl Parse for EmbedArgs {
         })
     }
 }
+
 impl ToTokens for EmbedArgs {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
         tokens.extend(self.file_path.to_token_stream());
