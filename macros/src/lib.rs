@@ -1129,20 +1129,17 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         }
 
         println!("Detected git-based embedding");
-        let temp_dir = clone_repo(
+        println!("Detected git-based embedding");
+        let repo_path = get_or_clone_repo(
             git_url.value().as_str(),
             &crate_root,
             args.branch_name.as_ref().map(|b| b.value()),
             args.commit_hash.as_ref().map(|c| c.value()),
             args.tag_name.as_ref().map(|t| t.value()),
         )?;
-        let file_path = args.file_path.value().to_string();
 
-        let full_path = temp_dir
-            .path()
-            .join(&file_path)
-            .to_string_lossy()
-            .into_owned();
+        let file_path = args.file_path.value().to_string();
+        let full_path = repo_path.join(&file_path).to_string_lossy().into_owned();
         println!("embed_internal_str ----> Full path: {}", full_path);
         let snippet_content = match &args.item_ident {
             Some(ident) => {
@@ -1151,7 +1148,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             }
             None => {
                 println!("No specific item requested, using entire file content");
-                fs::read_to_string(temp_dir.path().join(&file_path)).map_err(|e| {
+                fs::read_to_string(repo_path.join(&file_path)).map_err(|e| {
                     Error::new(Span::call_site(), format!("Failed to read file: {}", e))
                 })?
             }
@@ -1233,52 +1230,50 @@ fn embed_internal(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Re
     Ok(quote!(#output))
 }
 
-// // Cache for storing repository clones
-// static REPO_CACHE: Lazy<Mutex<HashMap<String, TempDir>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+// Cache for storing repository clones
+static REPO_CACHE: Lazy<Mutex<HashMap<String, TempDir>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-// // Generate a unique cache key for a repository
-// fn generate_cache_key(
-//     git_url: &str,
-//     branch: Option<&str>,
-//     commit: Option<&str>,
-//     tag: Option<&str>,
-// ) -> String {
-//     format!(
-//         "{}:{}:{}:{}",
-//         git_url,
-//         branch.unwrap_or("master"),
-//         commit.unwrap_or("none"),
-//         tag.unwrap_or("none")
-//     )
-// }
+// Generate a unique cache key for a repository
+fn generate_cache_key(
+    git_url: &str,
+    branch: Option<&str>,
+    commit: Option<&str>,
+    tag: Option<&str>,
+) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        git_url,
+        branch.unwrap_or("master"),
+        commit.unwrap_or("none"),
+        tag.unwrap_or("none")
+    )
+}
+fn get_or_clone_repo(
+    git_url: &str,
+    project_root: &PathBuf,
+    branch_name: Option<String>,
+    commit_hash: Option<String>,
+    tag_name: Option<String>,
+) -> Result<PathBuf> {
+    let cache_key = generate_cache_key(
+        git_url,
+        branch_name.as_deref(),
+        commit_hash.as_deref(),
+        tag_name.as_deref(),
+    );
 
-// fn get_or_clone_repo(
-//     git_url: &str,
-//     project_root: &PathBuf,
-//     branch_name: Option<String>,
-//     commit_hash: Option<String>,
-//     tag_name: Option<String>,
-// ) -> Result<PathBuf> {
-//     let cache_key = generate_cache_key(
-//         git_url,
-//         branch_name.as_deref(),
-//         commit_hash.as_deref(),
-//         tag_name.as_deref(),
-//     );
+    let mut cache = REPO_CACHE.lock().unwrap();
 
-//     let mut cache = REPO_CACHE.lock().unwrap();
+    if !cache.contains_key(&cache_key) {
+        println!("Cache miss for {}, cloning repository...", git_url);
+        let temp_dir = clone_repo(git_url, project_root, branch_name, commit_hash, tag_name)?;
+        cache.insert(cache_key.clone(), temp_dir);
+    } else {
+        println!("Cache hit for {}, using existing clone", git_url);
+    }
 
-//     if !cache.contains_key(&cache_key) {
-//         println!("Cache miss for {}, cloning repository...", git_url);
-//         let temp_dir = clone_repo(git_url, project_root, branch_name, commit_hash, tag_name)?;
-//         cache.insert(cache_key.clone(), temp_dir);
-//     } else {
-//         println!("Cache hit for {}, using existing clone", git_url);
-//     }
-
-//     Ok(cache.get(&cache_key).unwrap().path().to_path_buf())
-// }
-
+    Ok(cache.get(&cache_key).unwrap().path().to_path_buf())
+}
 fn clone_repo(
     git_url: &str,
     _project_root: &PathBuf,
