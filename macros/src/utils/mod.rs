@@ -1,4 +1,4 @@
-use git2::{Direction, FetchOptions, Oid, RemoteCallbacks, Repository};
+use git2::{Direction, FetchOptions, RemoteCallbacks, Repository};
 use proc_macro2::Span;
 use sha2::{Digest, Sha256};
 use std::fs;
