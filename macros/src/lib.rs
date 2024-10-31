@@ -579,7 +579,7 @@ impl Parse for EmbedArgs {
             {
                 return Err(Error::new(
                     file_path.span(),
-                    "First positional argument must be a file path, not a URL. For git URLs, use named arguments: git = \"url\", path = \"file_path\"",
+                    "First positional argument must be a file path, not a URL. For git URLs, use named arguments: git: \"url\", path: \"file_path\"",
                 ));
             }
 
@@ -613,27 +613,27 @@ impl Parse for EmbedArgs {
 
             if lookahead.peek(kw::git) {
                 let _: kw::git = input.parse()?;
-                let _: Token![=] = input.parse()?;
+                let _: Token![:] = input.parse()?;
                 git_url = Some(input.parse()?);
             } else if lookahead.peek(kw::path) {
                 let _: kw::path = input.parse()?;
-                let _: Token![=] = input.parse()?;
+                let _: Token![:] = input.parse()?;
                 file_path = Some(input.parse()?);
             } else if lookahead.peek(kw::branch) {
                 let _: kw::branch = input.parse()?;
-                let _: Token![=] = input.parse()?;
+                let _: Token![:] = input.parse()?;
                 branch_name = Some(input.parse()?);
             } else if lookahead.peek(kw::commit) {
                 let _: kw::commit = input.parse()?;
-                let _: Token![=] = input.parse()?;
+                let _: Token![:] = input.parse()?;
                 commit_hash = Some(input.parse()?);
             } else if lookahead.peek(kw::tag) {
                 let _: kw::tag = input.parse()?;
-                let _: Token![=] = input.parse()?;
+                let _: Token![:] = input.parse()?;
                 tag_name = Some(input.parse()?);
             } else if lookahead.peek(kw::item) {
                 let _: kw::item = input.parse()?;
-                let _: Token![=] = input.parse()?;
+                let _: Token![:] = input.parse()?;
                 item_ident = Some(input.parse()?);
             } else {
                 return Err(lookahead.error());
