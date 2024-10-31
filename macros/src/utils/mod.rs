@@ -1,4 +1,4 @@
-use git2::{FetchOptions, Oid, RemoteCallbacks, Repository};
+use git2::{Direction, FetchOptions, Oid, RemoteCallbacks, Repository};
 use proc_macro2::Span;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -182,7 +182,7 @@ pub fn check_internet_connectivity() -> bool {
 
     false
 }
-
+// comment
 /// Helper function to convert git2::Error to syn::Error
 fn git_err_to_syn(err: git2::Error) -> syn::Error {
     syn::Error::new(Span::call_site(), format!("Git error: {}", err))
@@ -199,7 +199,7 @@ pub fn get_remote_commit_sha_without_clone(
         .rand_bytes(5)
         .tempdir()
         .map_err(|e| {
-            syn::Error::new(
+            Error::new(
                 Span::call_site(),
                 format!("Failed to create temp dir: {}", e),
             )
@@ -211,17 +211,40 @@ pub fn get_remote_commit_sha_without_clone(
 
     println!("Initialized repo");
 
+    // First, fetch the remote HEAD to determine default branch
+    println!("ℹ️  Fetching remote references...");
+    remote.connect(Direction::Fetch).map_err(git_err_to_syn)?;
+
+    // Handle default branch resolution with proper error conversion
+    let default_branch = remote
+        .default_branch()
+        .map_err(git_err_to_syn)?
+        .as_str()
+        .map(String::from)
+        .ok_or_else(|| Error::new(Span::call_site(), "Invalid default branch name"))?;
+
+    print!("defult branch --------> {}", default_branch);
+    remote.disconnect().map_err(git_err_to_syn)?;
+
+    // Convert refs/heads/main to just main
+    let default_branch = default_branch
+        .strip_prefix("refs/heads/")
+        .unwrap_or(&default_branch);
+
+    println!("ℹ️  Default branch: {}", default_branch);
+
+    // Determine which refs to fetch
     let refspecs = if let Some(tag_name) = tag {
         vec![format!("refs/tags/{}:refs/tags/{}", tag_name, tag_name)]
     } else {
-        let branch_name = branch.unwrap_or("HEAD");
+        let branch_name = branch.unwrap_or(default_branch);
         vec![format!(
             "refs/heads/{}:refs/heads/{}",
             branch_name, branch_name
         )]
     };
 
-    println!("Fetching refs");
+    println!("Fetching refs: {:?}", refspecs);
     remote
         .fetch(
             refspecs
@@ -234,14 +257,14 @@ pub fn get_remote_commit_sha_without_clone(
         )
         .map_err(git_err_to_syn)?;
 
-    println!("Fetching commit SHA");
+    // Determine which commit to use
     let commit_id = if let Some(tag_name) = tag {
         let tag_ref = repo
             .find_reference(&format!("refs/tags/{}", tag_name))
             .map_err(git_err_to_syn)?;
         tag_ref.peel_to_commit().map_err(git_err_to_syn)?.id()
     } else {
-        let branch_name = branch.unwrap_or("HEAD");
+        let branch_name = branch.unwrap_or(default_branch);
         let reference = repo
             .find_reference(&format!("refs/heads/{}", branch_name))
             .map_err(git_err_to_syn)?;
@@ -258,8 +281,18 @@ pub fn get_or_create_commit_dir(git_url: &str, commit_sha: &str) -> Result<PathB
     let repo_name = git_url
         .split('/')
         .last()
-        .and_then(|s| s.strip_suffix(".git"))
+        .map(|s| {
+            if s.ends_with(".git") {
+                s.strip_suffix(".git").unwrap_or(s)
+            } else {
+                s
+            }
+        })
         .unwrap_or("repo");
+    println!(
+        "Repo name inside get_or_create_commit_dir: ------>  {}",
+        repo_name
+    );
 
     // Use first 8 chars of commit hash
     let short_commit = &commit_sha[..8];
@@ -289,7 +322,11 @@ pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<PathBu
 
     // Check if repo is already cloned and checked out
     if commit_dir.join(".git").exists() {
-        println!("Using existing repo clone at:  {}", commit_sha);
+        println!(
+            "Using existing repo clone with commit hash -->: {} returning existing dir path ----> {}",
+            commit_sha,
+            commit_dir.display()
+        );
         return Ok(commit_dir);
     }
 
