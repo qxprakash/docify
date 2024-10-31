@@ -1169,16 +1169,13 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
         if !snippet_path.exists() {
             println!("Snippet file does not exist, creating new one...");
-            // Clone repo and checkout specific commit
-            println!("Cloning repository and checking out commit...");
-            let temp_dir = clone_and_checkout_repo(git_url.value().as_str(), &commit_sha)?;
-            println!(
-                "Repository cloned to temporary directory: {}",
-                temp_dir.path().display()
-            );
+            // Clone repo and checkout specific commit, reusing existing clone if available
+            println!("Cloning/reusing repository and checking out commit...");
+            let repo_dir = clone_and_checkout_repo(git_url.value().as_str(), &commit_sha)?;
+            println!("Using repository at directory: {}", repo_dir.display());
 
             // Copy file to snippets directory
-            let source_path = temp_dir.path().join(&args.file_path.value());
+            let source_path = repo_dir.join(&args.file_path.value());
             println!("Reading source file from: {}", source_path.display());
             let content = fs::read_to_string(&source_path).map_err(|e| {
                 Error::new(

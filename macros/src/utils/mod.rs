@@ -1,220 +1,15 @@
 use git2::{FetchOptions, Oid, RemoteCallbacks, Repository};
-use once_cell::sync::Lazy;
 use proc_macro2::Span;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::fs;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Duration;
 use syn::visit::Visit;
 use syn::Error;
 use syn::Result;
-use tempfile::{Builder, TempDir};
 
 use crate::{source_excerpt, ItemVisitor};
-
-// Cache for storing repository clones
-static REPO_CACHE: Lazy<Mutex<HashMap<String, TempDir>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-
-// Generate a unique cache key for a repository
-pub fn generate_cache_key(
-    git_url: &str,
-    branch: Option<&str>,
-    commit: Option<&str>,
-    tag: Option<&str>,
-) -> String {
-    format!(
-        "{}:{}:{}:{}",
-        git_url,
-        branch.unwrap_or("master"),
-        commit.unwrap_or("none"),
-        tag.unwrap_or("none")
-    )
-}
-pub fn get_or_clone_repo(
-    git_url: &str,
-    project_root: &PathBuf,
-    branch_name: Option<String>,
-    commit_hash: Option<String>,
-    tag_name: Option<String>,
-) -> Result<PathBuf> {
-    let cache_key = generate_cache_key(
-        git_url,
-        branch_name.as_deref(),
-        commit_hash.as_deref(),
-        tag_name.as_deref(),
-    );
-
-    let mut cache = REPO_CACHE.lock().unwrap();
-
-    if !cache.contains_key(&cache_key) {
-        println!("Cache miss for {}, cloning repository...", git_url);
-        let temp_dir = clone_repo(git_url, project_root, branch_name, commit_hash, tag_name)?;
-        cache.insert(cache_key.clone(), temp_dir);
-    } else {
-        println!("Cache hit for {}, using existing clone", git_url);
-    }
-
-    Ok(cache.get(&cache_key).unwrap().path().to_path_buf())
-}
-pub fn clone_repo(
-    git_url: &str,
-    _project_root: &PathBuf,
-    branch_name: Option<String>,
-    commit_hash: Option<String>,
-    tag_name: Option<String>,
-) -> Result<TempDir> {
-    let temp_dir = Builder::new()
-        .prefix("docify-")
-        .rand_bytes(5)
-        .tempdir()
-        .map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to create temp directory: {}", e),
-            )
-        })?;
-
-    println!(
-        "Temporary directory created at: {}",
-        temp_dir.path().display()
-    );
-
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.transfer_progress(|progress| {
-        println!(
-            "Transfer progress: {}/{} objects",
-            progress.received_objects(),
-            progress.total_objects()
-        );
-        true
-    });
-
-    let repo = Repository::clone(git_url, temp_dir.path()).map_err(|e| {
-        Error::new(
-            Span::call_site(),
-            format!("Failed to clone repository: {}", e),
-        )
-    })?;
-
-    println!("Repository cloned successfully");
-    println!("Repository cloned to: {}", temp_dir.path().display());
-
-    if branch_name.is_some() || commit_hash.is_some() || tag_name.is_some() {
-        let mut fetch_opts = FetchOptions::new();
-        fetch_opts.remote_callbacks(callbacks);
-
-        let mut remote = repo.find_remote("origin").map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to find remote 'origin': {}", e),
-            )
-        })?;
-
-        remote
-            .fetch(
-                &["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"],
-                Some(&mut fetch_opts),
-                None,
-            )
-            .map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to fetch all branches and tags: {}", e),
-                )
-            })?;
-
-        if let Some(tag) = tag_name.as_deref() {
-            let (object, _reference) =
-                repo.revparse_ext(&format!("refs/tags/{}", tag))
-                    .map_err(|e| {
-                        Error::new(
-                            Span::call_site(),
-                            format!("Failed to find tag '{}': {}", tag, e),
-                        )
-                    })?;
-
-            repo.checkout_tree(&object, None).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to checkout tag '{}': {}", tag, e),
-                )
-            })?;
-
-            repo.set_head_detached(object.id()).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to set HEAD to tag '{}': {}", tag, e),
-                )
-            })?;
-
-            println!("Checked out tag '{}'", tag);
-        } else if let Some(commit) = commit_hash.as_deref() {
-            let oid = Oid::from_str(commit).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Invalid commit hash '{}': {}", commit, e),
-                )
-            })?;
-
-            let commit_obj = repo.find_commit(oid).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to find commit '{}': {}", commit, e),
-                )
-            })?;
-
-            repo.set_head_detached(commit_obj.id()).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to set HEAD to commit '{}': {}", commit, e),
-                )
-            })?;
-
-            repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
-                .map_err(|e| {
-                    Error::new(
-                        Span::call_site(),
-                        format!("Failed to checkout commit '{}': {}", commit, e),
-                    )
-                })?;
-
-            println!("Checked out commit '{}'", commit);
-        } else if let Some(branch) = branch_name.as_deref() {
-            let (object, _reference) =
-                repo.revparse_ext(&format!("origin/{}", branch))
-                    .map_err(|e| {
-                        Error::new(
-                            Span::call_site(),
-                            format!("Failed to find '{}' branch: {}", branch, e),
-                        )
-                    })?;
-
-            repo.checkout_tree(&object, None).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to checkout '{}' branch: {}", branch, e),
-                )
-            })?;
-
-            repo.set_head(&format!("refs/heads/{}", branch))
-                .map_err(|e| {
-                    Error::new(
-                        Span::call_site(),
-                        format!("Failed to set HEAD to '{}' branch: {}", branch, e),
-                    )
-                })?;
-
-            println!("Switched to '{}' branch", branch);
-        }
-    } else {
-        println!("Cloned default branch only");
-    }
-
-    Ok(temp_dir)
-}
 
 pub fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
     let snippets_dir = crate_root.join(".snippets");
@@ -393,11 +188,6 @@ fn git_err_to_syn(err: git2::Error) -> syn::Error {
     syn::Error::new(Span::call_site(), format!("Git error: {}", err))
 }
 
-/// Helper function to convert std::io::Error to syn::Error
-fn io_err_to_syn(err: std::io::Error) -> syn::Error {
-    syn::Error::new(Span::call_site(), format!("IO error: {}", err))
-}
-
 /// Gets commit SHA without cloning entire repo
 pub fn get_remote_commit_sha_without_clone(
     git_url: &str,
@@ -414,9 +204,12 @@ pub fn get_remote_commit_sha_without_clone(
                 format!("Failed to create temp dir: {}", e),
             )
         })?;
+    println!("Created temp dir: {}", temp_dir.path().display());
 
     let repo = Repository::init(temp_dir.path()).map_err(git_err_to_syn)?;
     let mut remote = repo.remote_anonymous(git_url).map_err(git_err_to_syn)?;
+
+    println!("Initialized repo");
 
     let refspecs = if let Some(tag_name) = tag {
         vec![format!("refs/tags/{}:refs/tags/{}", tag_name, tag_name)]
@@ -428,6 +221,7 @@ pub fn get_remote_commit_sha_without_clone(
         )]
     };
 
+    println!("Fetching refs");
     remote
         .fetch(
             refspecs
@@ -440,6 +234,7 @@ pub fn get_remote_commit_sha_without_clone(
         )
         .map_err(git_err_to_syn)?;
 
+    println!("Fetching commit SHA");
     let commit_id = if let Some(tag_name) = tag {
         let tag_ref = repo
             .find_reference(&format!("refs/tags/{}", tag_name))
@@ -456,20 +251,49 @@ pub fn get_remote_commit_sha_without_clone(
     Ok(commit_id.to_string())
 }
 
-/// Clones repo and checks out specific commit
-pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<tempfile::TempDir> {
-    let temp_dir = tempfile::Builder::new()
-        .prefix("docify-temp-")
-        .rand_bytes(5)
-        .tempdir()
-        .map_err(|e| {
-            syn::Error::new(
+pub fn get_or_create_commit_dir(git_url: &str, commit_sha: &str) -> Result<PathBuf> {
+    let temp_base = std::env::temp_dir().join("docify-repos");
+
+    // Extract repo name from git URL
+    let repo_name = git_url
+        .split('/')
+        .last()
+        .and_then(|s| s.strip_suffix(".git"))
+        .unwrap_or("repo");
+
+    // Use first 8 chars of commit hash
+    let short_commit = &commit_sha[..8];
+
+    // Create directory name: docify-{short_commit}-{repo_name}
+    let dir_name = format!("docify-{}-{}", short_commit, repo_name);
+    let commit_dir = temp_base.join(dir_name);
+
+    if commit_dir.exists() {
+        println!("Found existing repo directory: {}", commit_dir.display());
+        Ok(commit_dir)
+    } else {
+        println!("Creating new repo directory: {}", commit_dir.display());
+        fs::create_dir_all(&commit_dir).map_err(|e| {
+            Error::new(
                 Span::call_site(),
-                format!("Failed to create temp dir: {}", e),
+                format!("Failed to create commit directory: {}", e),
             )
         })?;
+        Ok(commit_dir)
+    }
+}
 
-    let repo = Repository::init(temp_dir.path()).map_err(git_err_to_syn)?;
+/// Clones repo and checks out specific commit, reusing existing clone if available
+pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<PathBuf> {
+    let commit_dir = get_or_create_commit_dir(git_url, commit_sha)?;
+
+    // Check if repo is already cloned and checked out
+    if commit_dir.join(".git").exists() {
+        println!("Using existing repo clone at:  {}", commit_sha);
+        return Ok(commit_dir);
+    }
+
+    println!("Cloning new repo for commit: {}", commit_sha);
 
     let mut callbacks = RemoteCallbacks::new();
     callbacks.transfer_progress(|p| {
@@ -485,6 +309,7 @@ pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<tempfi
     fetch_opts.remote_callbacks(callbacks);
     fetch_opts.depth(1);
 
+    let repo = Repository::init(&commit_dir).map_err(git_err_to_syn)?;
     let mut remote = repo.remote_anonymous(git_url).map_err(git_err_to_syn)?;
 
     remote
@@ -498,11 +323,12 @@ pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<tempfi
     let commit_id = git2::Oid::from_str(commit_sha).map_err(git_err_to_syn)?;
     let commit = repo.find_commit(commit_id).map_err(git_err_to_syn)?;
     let tree = commit.tree().map_err(git_err_to_syn)?;
+
     repo.checkout_tree(tree.as_object(), None)
         .map_err(git_err_to_syn)?;
     repo.set_head_detached(commit_id).map_err(git_err_to_syn)?;
 
-    Ok(temp_dir)
+    Ok(commit_dir)
 }
 
 /// Generates a deterministic filename for the snippet
