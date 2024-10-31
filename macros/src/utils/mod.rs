@@ -127,7 +127,7 @@ pub fn clone_repo(
             })?;
 
         if let Some(tag) = tag_name.as_deref() {
-            let (object, reference) =
+            let (object, _reference) =
                 repo.revparse_ext(&format!("refs/tags/{}", tag))
                     .map_err(|e| {
                         Error::new(
@@ -183,7 +183,7 @@ pub fn clone_repo(
 
             println!("Checked out commit '{}'", commit);
         } else if let Some(branch) = branch_name.as_deref() {
-            let (object, reference) =
+            let (object, _reference) =
                 repo.revparse_ext(&format!("origin/{}", branch))
                     .map_err(|e| {
                         Error::new(
@@ -306,7 +306,7 @@ pub fn generate_snippet_path(snippets_dir: &Path, file_path: &str, item_ident: &
         .unwrap_or("unknown");
     snippets_dir.join(format!(".docify-snippet-{}-{}", file_name, item_ident))
 }
-fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> {
+pub fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> {
     println!(
         "inside extract_item_from_file ----> Extracting item '{}' from '{}'",
         item_ident,
@@ -386,4 +386,138 @@ pub fn check_internet_connectivity() -> bool {
     }
 
     false
+}
+
+/// Helper function to convert git2::Error to syn::Error
+fn git_err_to_syn(err: git2::Error) -> syn::Error {
+    syn::Error::new(Span::call_site(), format!("Git error: {}", err))
+}
+
+/// Helper function to convert std::io::Error to syn::Error
+fn io_err_to_syn(err: std::io::Error) -> syn::Error {
+    syn::Error::new(Span::call_site(), format!("IO error: {}", err))
+}
+
+/// Gets commit SHA without cloning entire repo
+pub fn get_remote_commit_sha_without_clone(
+    git_url: &str,
+    branch: Option<&str>,
+    tag: Option<&str>,
+) -> Result<String> {
+    let temp_dir = tempfile::Builder::new()
+        .prefix("docify-temp-")
+        .rand_bytes(5)
+        .tempdir()
+        .map_err(|e| {
+            syn::Error::new(
+                Span::call_site(),
+                format!("Failed to create temp dir: {}", e),
+            )
+        })?;
+
+    let repo = Repository::init(temp_dir.path()).map_err(git_err_to_syn)?;
+    let mut remote = repo.remote_anonymous(git_url).map_err(git_err_to_syn)?;
+
+    let refspecs = if let Some(tag_name) = tag {
+        vec![format!("refs/tags/{}:refs/tags/{}", tag_name, tag_name)]
+    } else {
+        let branch_name = branch.unwrap_or("HEAD");
+        vec![format!(
+            "refs/heads/{}:refs/heads/{}",
+            branch_name, branch_name
+        )]
+    };
+
+    remote
+        .fetch(
+            refspecs
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .as_slice(),
+            None,
+            None,
+        )
+        .map_err(git_err_to_syn)?;
+
+    let commit_id = if let Some(tag_name) = tag {
+        let tag_ref = repo
+            .find_reference(&format!("refs/tags/{}", tag_name))
+            .map_err(git_err_to_syn)?;
+        tag_ref.peel_to_commit().map_err(git_err_to_syn)?.id()
+    } else {
+        let branch_name = branch.unwrap_or("HEAD");
+        let reference = repo
+            .find_reference(&format!("refs/heads/{}", branch_name))
+            .map_err(git_err_to_syn)?;
+        reference.peel_to_commit().map_err(git_err_to_syn)?.id()
+    };
+
+    Ok(commit_id.to_string())
+}
+
+/// Clones repo and checks out specific commit
+pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<tempfile::TempDir> {
+    let temp_dir = tempfile::Builder::new()
+        .prefix("docify-temp-")
+        .rand_bytes(5)
+        .tempdir()
+        .map_err(|e| {
+            syn::Error::new(
+                Span::call_site(),
+                format!("Failed to create temp dir: {}", e),
+            )
+        })?;
+
+    let repo = Repository::init(temp_dir.path()).map_err(git_err_to_syn)?;
+
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.transfer_progress(|p| {
+        println!(
+            "Fetching: {}/{} objects",
+            p.received_objects(),
+            p.total_objects()
+        );
+        true
+    });
+
+    let mut fetch_opts = FetchOptions::new();
+    fetch_opts.remote_callbacks(callbacks);
+    fetch_opts.depth(1);
+
+    let mut remote = repo.remote_anonymous(git_url).map_err(git_err_to_syn)?;
+
+    remote
+        .fetch(
+            &[&format!("+{commit_sha}:refs/heads/temp")],
+            Some(&mut fetch_opts),
+            None,
+        )
+        .map_err(git_err_to_syn)?;
+
+    let commit_id = git2::Oid::from_str(commit_sha).map_err(git_err_to_syn)?;
+    let commit = repo.find_commit(commit_id).map_err(git_err_to_syn)?;
+    let tree = commit.tree().map_err(git_err_to_syn)?;
+    repo.checkout_tree(tree.as_object(), None)
+        .map_err(git_err_to_syn)?;
+    repo.set_head_detached(commit_id).map_err(git_err_to_syn)?;
+
+    Ok(temp_dir)
+}
+
+/// Generates a deterministic filename for the snippet
+pub fn generate_snippet_filename(commit_sha: &str, path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    let file_name = path_buf
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("unknown");
+
+    format!("{}-{}-{}", &commit_sha[..8], hash_path(path), file_name)
+}
+
+fn hash_path(path: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(path.as_bytes());
+    format!("{:.8x}", hasher.finalize()) // First 8 chars of hash
 }

@@ -1,16 +1,12 @@
 mod utils;
 use common_path::common_path;
 use derive_syn_parse::Parse;
-use git2::{FetchOptions, ObjectType, Oid, RemoteCallbacks, Repository};
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use regex::Regex;
-use sha2::{Digest, Sha256};
-use std::net::TcpStream;
-use std::sync::Mutex;
-use std::time::Duration;
+
 use std::{
     cmp::min,
     collections::HashMap,
@@ -26,10 +22,8 @@ use syn::{
     spanned::Spanned,
     token::Paren,
     visit::{self, Visit},
-    AttrStyle, Attribute, Error, File, Ident, ImplItem, Item, LitStr, Meta, Result, Token,
-    TraitItem,
+    AttrStyle, Attribute, Error, Ident, ImplItem, Item, LitStr, Meta, Result, Token, TraitItem,
 };
-use tempfile::{Builder, TempDir};
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use toml::{Table, Value};
 use utils::*;
@@ -1129,35 +1123,90 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         }
 
         println!("Detected git-based embedding");
-        println!("Detected git-based embedding");
-        let repo_path = get_or_clone_repo(
-            git_url.value().as_str(),
-            &crate_root,
-            args.branch_name.as_ref().map(|b| b.value()),
-            args.commit_hash.as_ref().map(|c| c.value()),
-            args.tag_name.as_ref().map(|t| t.value()),
+        println!("Starting git-based embedding process...");
+        // Get commit SHA without cloning
+        println!("Fetching commit SHA without cloning repository...");
+        // Get commit SHA - either directly from args or by fetching
+        let commit_sha = if let Some(hash) = args.commit_hash.as_ref() {
+            println!("Using provided commit hash");
+            hash.value().to_string()
+        } else {
+            println!("Fetching commit SHA without cloning repository...");
+            get_remote_commit_sha_without_clone(
+                git_url.value().as_str(),
+                args.branch_name
+                    .as_ref()
+                    .map(|b| b.value().to_string())
+                    .as_deref(),
+                args.tag_name
+                    .as_ref()
+                    .map(|t| t.value().to_string())
+                    .as_deref(),
+            )?
+        };
+        println!("Retrieved commit SHA: {}", commit_sha);
+
+        // Generate deterministic filename
+        println!("Generating deterministic filename for snippet...");
+        let snippet_filename = generate_snippet_filename(&commit_sha, &args.file_path.value());
+        println!("Generated snippet filename: {}", snippet_filename);
+
+        let snippets_dir = caller_crate_root()
+            .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?
+            .join(".snippets");
+        println!("Using snippets directory: {}", snippets_dir.display());
+
+        fs::create_dir_all(&snippets_dir).map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to create snippets directory: {}", e),
+            )
+        })?;
+        println!("Created snippets directory if it didn't exist");
+
+        let snippet_path = snippets_dir.join(&snippet_filename);
+        println!("Full snippet path: {}", snippet_path.display());
+
+        if !snippet_path.exists() {
+            println!("Snippet file does not exist, creating new one...");
+            // Clone repo and checkout specific commit
+            println!("Cloning repository and checking out commit...");
+            let temp_dir = clone_and_checkout_repo(git_url.value().as_str(), &commit_sha)?;
+            println!(
+                "Repository cloned to temporary directory: {}",
+                temp_dir.path().display()
+            );
+
+            // Copy file to snippets directory
+            let source_path = temp_dir.path().join(&args.file_path.value());
+            println!("Reading source file from: {}", source_path.display());
+            let content = fs::read_to_string(&source_path).map_err(|e| {
+                Error::new(
+                    args.file_path.span(),
+                    format!("Failed to read file from repo: {}", e),
+                )
+            })?;
+            println!("Successfully read source file content");
+
+            println!("Writing content to snippet file...");
+            fs::write(&snippet_path, content).map_err(|e| {
+                Error::new(
+                    Span::call_site(),
+                    format!("Failed to write snippet file: {}", e),
+                )
+            })?;
+            println!("Successfully wrote snippet file");
+        } else {
+            println!("Using existing snippet file");
+        }
+
+        let file_content_with_ident = extract_item_from_file(
+            &snippet_path,
+            &args.item_ident.as_ref().unwrap().to_string(),
         )?;
 
-        let file_path = args.file_path.value().to_string();
-        let full_path = repo_path.join(&file_path).to_string_lossy().into_owned();
-        println!("embed_internal_str ----> Full path: {}", full_path);
-        let snippet_content = match &args.item_ident {
-            Some(ident) => {
-                println!("Generating snippet for item: {}", ident);
-                manage_snippet(&crate_root, &full_path, &ident.to_string())?
-            }
-            None => {
-                println!("No specific item requested, using entire file content");
-                fs::read_to_string(repo_path.join(&file_path)).map_err(|e| {
-                    Error::new(Span::call_site(), format!("Failed to read file: {}", e))
-                })?
-            }
-        };
-
-        let formatted = fix_indentation(&snippet_content);
-        let output = into_example(&formatted, lang);
-
-        println!("Successfully embedded git-based content");
+        let formatted_content = fix_indentation(&file_content_with_ident);
+        let output = into_example(&formatted_content, lang);
         println!(
             "embed_internal_str ----> Final output length: {}",
             output.len()
