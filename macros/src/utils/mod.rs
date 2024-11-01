@@ -9,7 +9,7 @@ use syn::visit::Visit;
 use syn::Error;
 use syn::Result;
 
-use crate::{source_excerpt, ItemVisitor};
+use crate::{caller_crate_root, source_excerpt, ItemVisitor};
 
 pub fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
     let snippets_dir = crate_root.join(".snippets");
@@ -565,4 +565,25 @@ pub fn get_default_branch(git_url: &str) -> Result<String> {
 fn hash_git_url(url: &str) -> String {
     println!("ℹ️  Hashing git URL: {}", url);
     hash_string(url)
+}
+
+/// Creates and returns the snippets directory path, ensuring it exists
+pub fn get_or_create_snippets_dir() -> Result<PathBuf> {
+    let crate_root = caller_crate_root()
+        .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
+
+    let snippets_dir = crate_root.join(".snippets");
+    println!(
+        "📁 Ensuring snippets directory exists at: {}",
+        snippets_dir.display()
+    );
+
+    fs::create_dir_all(&snippets_dir).map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!("Failed to create .snippets directory: {}", e),
+        )
+    })?;
+
+    Ok(snippets_dir)
 }

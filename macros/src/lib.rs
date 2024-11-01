@@ -1181,19 +1181,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
         println!("\n🔍 Checking for existing snippets...");
 
-        // creating snippets dir if it doesn't exist
-        let snippets_dir = caller_crate_root()
-            .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?
-            .join(".snippets");
-        println!("Using snippets directory: {}", snippets_dir.display());
-
-        fs::create_dir_all(&snippets_dir).map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to create snippets directory: {}", e),
-            )
-        })?;
-
+        let snippets_dir = get_or_create_snippets_dir()?;
         // Check for existing snippet
         let existing_snippet_path =
             if let Some(existing_snippet) = SnippetFile::find_existing(&new_snippet.prefix) {
