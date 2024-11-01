@@ -1101,56 +1101,130 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
     if let Some(git_url) = &args.git_url {
         let has_internet = check_internet_connectivity();
+        // Determine git option type and value
+        println!(
+            "\n🌐 Internet connectivity: {}",
+            if has_internet { "Online" } else { "Offline" }
+        );
+        // Determine git option type and value
+        let (git_option_type, git_option_value) = if let Some(hash) = &args.commit_hash {
+            println!("Using commit hash: {}", hash.value());
+            ("commit".to_string(), hash.value())
+        } else if let Some(tag) = &args.tag_name {
+            println!("Using tag: {}", tag.value());
+            ("tag".to_string(), tag.value())
+        } else {
+            // Branch case: Use provided branch or fallback
+            let branch_name = if let Some(ref branch) = args.branch_name {
+                println!("Using provided branch: {}", branch.value());
+                branch.value()
+            } else if has_internet {
+                // No branch provided and online: try to get default branch
+                match get_default_branch(git_url.value().as_str()) {
+                    Ok(branch) => {
+                        println!("Using default branch: {}", branch);
+                        branch
+                    }
+                    Err(_) => {
+                        println!("Failed to get default branch, falling back to master");
+                        "master".to_string()
+                    }
+                }
+            } else {
+                println!("Offline mode, using master as fallback");
+                "master".to_string()
+            };
+            ("branch".to_string(), branch_name)
+        };
 
-        if !has_internet {
+        println!(
+            "Git option type: {}, value: {}",
+            git_option_type, git_option_value
+        );
+
+        // need to add a check here if internet is not present but commit hash is provided
+        // Create snippet file object based on connectivity
+        let new_snippet = if has_internet {
+            println!("\n🔍 Fetching latest commit SHA from remote repository...");
+            let commit_sha = if let Some(hash) = &args.commit_hash {
+                hash.value()
+            } else if let Some(tag) = &args.tag_name {
+                get_remote_commit_sha_without_clone(
+                    git_url.value().as_str(),
+                    None,
+                    Some(tag.value().as_str()),
+                )?
+            } else {
+                get_remote_commit_sha_without_clone(
+                    git_url.value().as_str(),
+                    Some(git_option_value.as_str()),
+                    None,
+                )?
+            };
+            println!("✅ Found commit SHA: {}", commit_sha);
+
+            SnippetFile::new_with_commit(
+                git_url.value().as_str(),
+                &git_option_type,
+                &git_option_value,
+                &args.file_path.value(),
+                &commit_sha,
+            )
+        } else {
+            SnippetFile::new_without_commit(
+                git_url.value().as_str(),
+                &git_option_type,
+                &git_option_value,
+                &args.file_path.value(),
+            )
+        };
+
+        println!("\n🔍 Checking for existing snippets...");
+
+        // Check for existing snippet with same prefix
+        if let Some(existing_snippet) = SnippetFile::find_existing(&new_snippet.prefix) {
             if !has_internet {
-                println!("No internet connection detected. Using cached snippet if available in the snippets dir.");
-                // Get content from snippet and process it
-                let content = manage_snippet(
-                    &crate_root,
-                    &args.file_path.value(),
-                    args.item_ident
-                        .as_ref()
-                        .map(|i| i.to_string())
-                        .unwrap_or_default()
-                        .as_str(),
-                )?;
+                println!(
+                    "✅ Found existing snippet (offline mode): .snippets/{}",
+                    existing_snippet.full_name
+                );
+            }
 
-                // Fix indentation and process the content
-                let fixed = fix_indentation(&content);
-                return Ok(into_example(&fixed, lang));
+            // Online mode comparison
+            if let (Some(existing_hash), Some(new_hash)) =
+                (&existing_snippet.commit_hash, &new_snippet.commit_hash)
+            {
+                if existing_hash == new_hash {
+                    println!(
+                        "✅ Existing snippet is up to date at just return it and read ident from it no need to clone: .snippets/{}",
+                        existing_snippet.full_name
+                    );
+                } else {
+                    println!("ℹ️  Found existing snippet with different commit hash:");
+                    println!("   Current: {}", existing_hash);
+                    println!("   New: {}", new_hash);
+                    println!("🔄 Updating snippet...");
+
+                    fs::remove_file(Path::new(".snippets").join(&existing_snippet.full_name))
+                        .map_err(|e| {
+                            Error::new(
+                                Span::call_site(),
+                                format!("Failed to remove old snippet file: {}", e),
+                            )
+                        })?;
+                    println!("✅ Removed old snippet file");
+                    println!("here you would clone again and update the file")
+                }
             }
         }
+        if !has_internet {
+            return Err(Error::new(
+                Span::call_site(),
+                "No matching snippet found and no internet connection available",
+            ));
+        }
 
-        println!("Detected git-based embedding");
-        println!("Starting git-based embedding process...");
-        // Get commit SHA without cloning
-        println!("Fetching commit SHA without cloning repository...");
-        // Get commit SHA - either directly from args or by fetching
-        let commit_sha = if let Some(hash) = args.commit_hash.as_ref() {
-            println!("Using provided commit hash");
-            hash.value().to_string()
-        } else {
-            println!("Fetching commit SHA without cloning repository...");
-            get_remote_commit_sha_without_clone(
-                git_url.value().as_str(),
-                args.branch_name
-                    .as_ref()
-                    .map(|b| b.value().to_string())
-                    .as_deref(),
-                args.tag_name
-                    .as_ref()
-                    .map(|t| t.value().to_string())
-                    .as_deref(),
-            )?
-        };
-        println!("Retrieved commit SHA: {}", commit_sha);
-
-        // Generate deterministic filename
-        println!("Generating deterministic filename for snippet...");
-        let snippet_filename = generate_snippet_filename(&commit_sha, &args.file_path.value());
-        println!("Generated snippet filename: {}", snippet_filename);
-
+        // creating snippets dir if it doesn't exist
         let snippets_dir = caller_crate_root()
             .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?
             .join(".snippets");
@@ -1162,40 +1236,41 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                 format!("Failed to create snippets directory: {}", e),
             )
         })?;
-        println!("Created snippets directory if it didn't exist");
 
-        let snippet_path = snippets_dir.join(&snippet_filename);
-        println!("Full snippet path: {}", snippet_path.display());
+        println!("cloning and checking out repo...");
 
-        if !snippet_path.exists() {
-            println!("Snippet file does not exist, creating new one...");
-            // Clone repo and checkout specific commit, reusing existing clone if available
-            println!("Cloning/reusing repository and checking out commit...");
-            let repo_dir = clone_and_checkout_repo(git_url.value().as_str(), &commit_sha)?;
-            println!("Using repository at directory: {}", repo_dir.display());
+        // returns the directory of the cloned repo with caching
+        let repo_dir = clone_and_checkout_repo(
+            git_url.value().as_str(),
+            &new_snippet.commit_hash.as_ref().unwrap(),
+        )?;
+        println!("✅ Cloned and checked out repo");
 
-            // Copy file to snippets directory
-            let source_path = repo_dir.join(&args.file_path.value());
-            println!("Reading source file from: {}", source_path.display());
-            let content = fs::read_to_string(&source_path).map_err(|e| {
-                Error::new(
-                    args.file_path.span(),
-                    format!("Failed to read file from repo: {}", e),
-                )
-            })?;
-            println!("Successfully read source file content");
+        let source_path = repo_dir.join(&args.file_path.value());
+        println!("Reading source file from: {}", source_path.display());
 
-            println!("Writing content to snippet file...");
-            fs::write(&snippet_path, content).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to write snippet file: {}", e),
-                )
-            })?;
-            println!("Successfully wrote snippet file");
-        } else {
-            println!("Using existing snippet file");
-        }
+        let content = fs::read_to_string(&source_path).map_err(|e| {
+            Error::new(
+                args.file_path.span(),
+                format!("Failed to read file from repo: {}", e),
+            )
+        })?;
+
+        let snippet_path = snippets_dir.join(&new_snippet.full_name);
+        println!(
+            "Writing content to snippet file: {}",
+            snippet_path.display()
+        );
+        fs::write(&snippet_path, content).map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to write snippet file: {}", e),
+            )
+        })?;
+        println!(
+            "✅ Wrote content to snippet file at path: {}",
+            snippet_path.display()
+        );
 
         let file_content_with_ident = extract_item_from_file(
             &snippet_path,

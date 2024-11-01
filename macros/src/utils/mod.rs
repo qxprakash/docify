@@ -384,3 +384,185 @@ fn hash_path(path: &str) -> String {
     hasher.update(path.as_bytes());
     format!("{:.8x}", hasher.finalize()) // First 8 chars of hash
 }
+
+/// Represents a parsed snippet filename
+pub struct SnippetFile {
+    pub prefix: String,
+    pub commit_hash: Option<String>,
+    pub full_name: String,
+}
+
+/// Functions to handle snippet file operations
+impl SnippetFile {
+    pub fn new_without_commit(
+        git_url: &str,
+        git_option_type: &str,
+        git_option_value: &str,
+        path: &str,
+    ) -> Self {
+        println!("\n📝 Creating new SnippetFile.. name without commit.");
+        println!("ℹ️  Input path: {}", path);
+
+        let path_buf = PathBuf::from(path);
+        let file_name = path_buf
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("unknown");
+        println!("ℹ️  Extracted filename: {}", file_name);
+
+        let prefix = format!(
+            "{}-{}-{}-{}",
+            hash_git_url(git_url),
+            hash_git_option(git_option_type, git_option_value),
+            hash_string(path),
+            file_name,
+        );
+        println!("ℹ️  Generated prefix: {}", prefix);
+
+        Self {
+            prefix: prefix.clone(),
+            commit_hash: None,
+            full_name: prefix,
+        }
+    }
+
+    pub fn new_with_commit(
+        git_url: &str,
+        git_option_type: &str,
+        git_option_value: &str,
+        path: &str,
+        commit_sha: &str,
+    ) -> Self {
+        println!("\n📝 Creating new SnippetFile.. name with commit.");
+        let base = Self::new_without_commit(git_url, git_option_type, git_option_value, path);
+        let full_name = format!("{}-{}.rs", base.prefix, commit_sha);
+        println!("✅ Created snippet filename: {}", full_name);
+
+        Self {
+            prefix: base.prefix,
+            commit_hash: Some(commit_sha.to_string()),
+            full_name,
+        }
+    }
+
+    pub fn find_existing(prefix: &str) -> Option<Self> {
+        println!("\n🔍 Looking for existing snippet with prefix: {}", prefix);
+
+        // Get the crate root path
+        let crate_root = match crate::caller_crate_root() {
+            Some(root) => root,
+            None => {
+                println!("❌ Failed to resolve crate root");
+                return None;
+            }
+        };
+
+        // Use absolute path by joining with crate root
+        let snippets_dir = crate_root.join(".snippets");
+        println!("📁 Checking snippets directory: {}", snippets_dir.display());
+
+        // Check if directory exists and is actually a directory
+        if !snippets_dir.exists() {
+            println!(
+                "❌ .snippets directory does not exist at {}",
+                snippets_dir.display()
+            );
+            return None;
+        }
+
+        fs::read_dir(snippets_dir).ok()?.find_map(|entry| {
+            let entry = entry.ok()?;
+            println!("entry: {:?}", entry);
+            let file_name = entry.file_name().to_string_lossy().to_string();
+
+            println!("ℹ️  Checking file: {}", file_name);
+
+            if file_name.starts_with(prefix) {
+                println!("✅ Found matching file!");
+                // Extract commit hash from filename if it exists
+                let commit_hash = file_name
+                    .strip_suffix(".rs")?
+                    .rsplit('-')
+                    .next()
+                    .map(|s| s.to_string());
+                println!(
+                    "ℹ️  Extracted commit hash from existing file: {:?}",
+                    commit_hash
+                );
+
+                Some(Self {
+                    prefix: prefix.to_string(),
+                    commit_hash,
+                    full_name: file_name,
+                })
+            } else {
+                None
+            }
+        })
+    }
+}
+
+fn hash_string(input: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:.8x}", hasher.finalize())
+}
+
+fn hash_git_option(option_type: &str, value: &str) -> String {
+    hash_string(&format!("{}-{}", option_type, value))
+}
+
+/// Helper function to get default branch
+
+pub fn get_default_branch(git_url: &str) -> Result<String> {
+    let temp_dir = tempfile::Builder::new()
+        .prefix("docify-temp-")
+        .rand_bytes(5)
+        .tempdir()
+        .map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to create temp dir: {}", e),
+            )
+        })?;
+
+    let repo = Repository::init(temp_dir.path())
+        .map_err(|e| Error::new(Span::call_site(), format!("Failed to init repo: {}", e)))?;
+
+    let mut remote = repo
+        .remote_anonymous(git_url)
+        .map_err(|e| Error::new(Span::call_site(), format!("Failed to create remote: {}", e)))?;
+
+    remote.connect(git2::Direction::Fetch).map_err(|e| {
+        Error::new(
+            Span::call_site(),
+            format!("Failed to connect to remote: {}", e),
+        )
+    })?;
+
+    let default_branch = remote
+        .default_branch()
+        .map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to get default branch: {}", e),
+            )
+        })?
+        .as_str()
+        .ok_or_else(|| Error::new(Span::call_site(), "Invalid default branch name"))?
+        .to_string();
+
+    remote
+        .disconnect()
+        .map_err(|e| Error::new(Span::call_site(), format!("Failed to disconnect: {}", e)))?;
+
+    Ok(default_branch
+        .strip_prefix("refs/heads/")
+        .unwrap_or(&default_branch)
+        .to_string())
+}
+
+fn hash_git_url(url: &str) -> String {
+    println!("ℹ️  Hashing git URL: {}", url);
+    hash_string(url)
+}
