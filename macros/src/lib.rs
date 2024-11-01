@@ -1181,49 +1181,6 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
         println!("\n🔍 Checking for existing snippets...");
 
-        // Check for existing snippet with same prefix
-        if let Some(existing_snippet) = SnippetFile::find_existing(&new_snippet.prefix) {
-            if !has_internet {
-                println!(
-                    "✅ Found existing snippet (offline mode): .snippets/{}",
-                    existing_snippet.full_name
-                );
-            }
-
-            // Online mode comparison
-            if let (Some(existing_hash), Some(new_hash)) =
-                (&existing_snippet.commit_hash, &new_snippet.commit_hash)
-            {
-                if existing_hash == new_hash {
-                    println!(
-                        "✅ Existing snippet is up to date at just return it and read ident from it no need to clone: .snippets/{}",
-                        existing_snippet.full_name
-                    );
-                } else {
-                    println!("ℹ️  Found existing snippet with different commit hash:");
-                    println!("   Current: {}", existing_hash);
-                    println!("   New: {}", new_hash);
-                    println!("🔄 Updating snippet...");
-
-                    fs::remove_file(Path::new(".snippets").join(&existing_snippet.full_name))
-                        .map_err(|e| {
-                            Error::new(
-                                Span::call_site(),
-                                format!("Failed to remove old snippet file: {}", e),
-                            )
-                        })?;
-                    println!("✅ Removed old snippet file");
-                    println!("here you would clone again and update the file")
-                }
-            }
-        }
-        if !has_internet {
-            return Err(Error::new(
-                Span::call_site(),
-                "No matching snippet found and no internet connection available",
-            ));
-        }
-
         // creating snippets dir if it doesn't exist
         let snippets_dir = caller_crate_root()
             .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?
@@ -1237,9 +1194,77 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             )
         })?;
 
-        println!("cloning and checking out repo...");
+        // Check for existing snippet
+        let existing_snippet_path =
+            if let Some(existing_snippet) = SnippetFile::find_existing(&new_snippet.prefix) {
+                if !has_internet {
+                    println!(
+                        "✅ Found existing snippet (offline mode): .snippets/{}",
+                        existing_snippet.full_name
+                    );
+                    Some(existing_snippet.full_name)
+                } else {
+                    // Online mode comparison
+                    if let (Some(existing_hash), Some(new_hash)) =
+                        (&existing_snippet.commit_hash, &new_snippet.commit_hash)
+                    {
+                        if existing_hash == new_hash {
+                            println!(
+                                "✅ Existing snippet is up to date at: .snippets/{}",
+                                existing_snippet.full_name
+                            );
+                            Some(existing_snippet.full_name)
+                        } else {
+                            println!("ℹ️  Found existing snippet with different commit hash:");
+                            println!("   Current: {}", existing_hash);
+                            println!("   New: {}", new_hash);
+                            println!("🔄 Removing outdated snippet...");
+
+                            // Remove old snippet file
+                            fs::remove_file(snippets_dir.join(&existing_snippet.full_name))
+                                .map_err(|e| {
+                                    Error::new(
+                                        Span::call_site(),
+                                        format!("Failed to remove old snippet file: {}", e),
+                                    )
+                                })?;
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+            } else if !has_internet {
+                return Err(Error::new(
+                    Span::call_site(),
+                    "No matching snippet found and no internet connection available",
+                ));
+            } else {
+                None
+            };
+
+        println!("existing_snippet_path: ----> {:?}", existing_snippet_path);
+
+        // Use existing snippet if available, otherwise proceed with cloning
+
+        if let Some(snippet_name) = existing_snippet_path {
+            println!("using existing snippet path skipping cloning");
+            let snippet_path = snippets_dir.join(snippet_name);
+            let file_content_with_ident = extract_item_from_file(
+                &snippet_path,
+                &args.item_ident.as_ref().unwrap().to_string(),
+            )?;
+            let formatted_content = fix_indentation(&file_content_with_ident);
+            let output = into_example(&formatted_content, lang);
+            println!(
+                "embed_internal_str ----> Final output length: {}",
+                output.len()
+            );
+            return Ok(output);
+        }
 
         // returns the directory of the cloned repo with caching
+
         let repo_dir = clone_and_checkout_repo(
             git_url.value().as_str(),
             &new_snippet.commit_hash.as_ref().unwrap(),
