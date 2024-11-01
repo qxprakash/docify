@@ -1101,46 +1101,32 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
     if let Some(git_url) = &args.git_url {
         let has_internet = check_internet_connectivity();
-        // Determine git option type and value
         println!(
             "\n🌐 Internet connectivity: {}",
             if has_internet { "Online" } else { "Offline" }
         );
+
         // Determine git option type and value
         let (git_option_type, git_option_value) = if let Some(hash) = &args.commit_hash {
             println!("Using commit hash: {}", hash.value());
-            ("commit".to_string(), hash.value())
+            (Some("commit".to_string()), Some(hash.value()))
         } else if let Some(tag) = &args.tag_name {
             println!("Using tag: {}", tag.value());
-            ("tag".to_string(), tag.value())
+            (Some("tag".to_string()), Some(tag.value()))
+        } else if let Some(ref branch) = args.branch_name {
+            println!("Using provided branch: {}", branch.value());
+            (Some("branch".to_string()), Some(branch.value()))
         } else {
-            // Branch case: Use provided branch or fallback
-            let branch_name = if let Some(ref branch) = args.branch_name {
-                println!("Using provided branch: {}", branch.value());
-                branch.value()
-            } else if has_internet {
-                // No branch provided and online: try to get default branch
-                match get_default_branch(git_url.value().as_str()) {
-                    Ok(branch) => {
-                        println!("Using default branch: {}", branch);
-                        branch
-                    }
-                    Err(_) => {
-                        println!("Failed to get default branch, falling back to master");
-                        "master".to_string()
-                    }
-                }
-            } else {
-                println!("Offline mode, using master as fallback");
-                "master".to_string()
-            };
-            ("branch".to_string(), branch_name)
+            // No specific git option provided - default branch case
+            println!("No specific git option provided, using flexible naming");
+            (None, None)
         };
 
-        println!(
-            "Git option type: {}, value: {}",
-            git_option_type, git_option_value
-        );
+        if let (Some(opt_type), Some(opt_value)) = (&git_option_type, &git_option_value) {
+            println!("Git option type: {}, value: {}", opt_type, opt_value);
+        } else {
+            println!("Using flexible naming without git options");
+        }
 
         // need to add a check here if internet is not present but commit hash is provided
         // Create snippet file object based on connectivity
@@ -1154,45 +1140,76 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                 &args.file_path.value(),
                 &hash.value(),
             )
-        } else if has_internet {
-            // Online mode without commit hash
-            println!("\n🔍 Fetching latest commit SHA from remote repository...");
-            let commit_sha = if let Some(tag) = &args.tag_name {
-                get_remote_commit_sha_without_clone(
+        } else if let Some(tag) = &args.tag_name {
+            // Tag case
+            if has_internet {
+                let commit_sha = get_remote_commit_sha_without_clone(
                     git_url.value().as_str(),
                     None,
                     Some(tag.value().as_str()),
-                )?
-            } else {
-                get_remote_commit_sha_without_clone(
+                )?;
+                SnippetFile::new_with_commit(
                     git_url.value().as_str(),
-                    Some(git_option_value.as_str()),
+                    "tag",
+                    &tag.value(),
+                    &args.file_path.value(),
+                    &commit_sha,
+                )
+            } else {
+                println!("📡 Offline mode: Creating snippet without commit hash for tag");
+                SnippetFile::new_without_commit(
+                    git_url.value().as_str(),
+                    "tag",
+                    &tag.value(),
+                    &args.file_path.value(),
+                )
+            }
+        } else if let Some(branch) = &args.branch_name {
+            // Explicit branch case
+            if has_internet {
+                let commit_sha = get_remote_commit_sha_without_clone(
+                    git_url.value().as_str(),
+                    Some(branch.value().as_str()),
                     None,
-                )?
-            };
-            println!("✅ Found commit SHA: {}", commit_sha);
-
-            SnippetFile::new_with_commit(
-                git_url.value().as_str(),
-                &git_option_type,
-                &git_option_value,
-                &args.file_path.value(),
-                &commit_sha,
-            )
+                )?;
+                SnippetFile::new_with_commit(
+                    git_url.value().as_str(),
+                    "branch",
+                    branch.value().as_str(),
+                    &args.file_path.value(),
+                    &commit_sha,
+                )
+            } else {
+                println!("📡 Offline mode: Creating snippet without commit hash for branch");
+                SnippetFile::new_without_commit(
+                    git_url.value().as_str(),
+                    "branch",
+                    branch.value().as_str(),
+                    &args.file_path.value(),
+                )
+            }
         } else {
-            // Offline mode without commit hash
-            println!("📡 Offline mode: Creating snippet without commit hash");
-            SnippetFile::new_without_commit(
-                git_url.value().as_str(),
-                &git_option_type,
-                &git_option_value,
-                &args.file_path.value(),
-            )
+            // Default branch case - more flexible naming
+            if has_internet {
+                let commit_sha =
+                    get_remote_commit_sha_without_clone(git_url.value().as_str(), None, None)?;
+                SnippetFile::new_for_default_branch(
+                    git_url.value().as_str(),
+                    &args.file_path.value(),
+                    Some(&commit_sha),
+                )
+            } else {
+                SnippetFile::new_for_default_branch(
+                    git_url.value().as_str(),
+                    &args.file_path.value(),
+                    None,
+                )
+            }
         };
-
         println!("\n🔍 Checking for existing snippets...");
 
         let snippets_dir = get_or_create_snippets_dir()?;
+
         // Check for existing snippet
         let existing_snippet_path =
             if let Some(existing_snippet) = SnippetFile::find_existing(&new_snippet.prefix) {

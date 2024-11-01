@@ -500,6 +500,45 @@ impl SnippetFile {
             }
         })
     }
+
+    /// Creates a new SnippetFile for default branch case (when no branch is specified)
+    pub fn new_for_default_branch(git_url: &str, path: &str, commit_sha: Option<&str>) -> Self {
+        println!("\n📝 Creating new SnippetFile for default branch case");
+        println!("ℹ️  Input path: {}", path);
+
+        let path_buf = PathBuf::from(path);
+        let file_name = path_buf
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("unknown");
+        println!("ℹ️  Extracted filename: {}", file_name);
+
+        // Create prefix without git option hash for flexibility
+        let prefix = format!(
+            "{}-{}-{}",
+            hash_git_url(git_url),
+            hash_string(path),
+            file_name,
+        );
+        println!("ℹ️  Generated prefix: {}", prefix);
+
+        if let Some(commit) = commit_sha {
+            let full_name = format!("{}-{}.rs", prefix, commit);
+            println!("✅ Created snippet filename with commit: {}", full_name);
+            Self {
+                prefix,
+                commit_hash: Some(commit.to_string()),
+                full_name,
+            }
+        } else {
+            println!("✅ Created snippet filename without commit");
+            Self {
+                prefix: prefix.clone(),
+                commit_hash: None,
+                full_name: prefix,
+            }
+        }
+    }
 }
 
 fn hash_string(input: &str) -> String {
