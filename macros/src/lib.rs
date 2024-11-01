@@ -1144,11 +1144,20 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
         // need to add a check here if internet is not present but commit hash is provided
         // Create snippet file object based on connectivity
-        let new_snippet = if has_internet {
+        let new_snippet = if let Some(hash) = &args.commit_hash {
+            // If commit hash is provided, use it regardless of internet connectivity
+            println!("Using provided commit hash: {}", hash.value());
+            SnippetFile::new_with_commit(
+                git_url.value().as_str(),
+                "commit",
+                &hash.value(),
+                &args.file_path.value(),
+                &hash.value(),
+            )
+        } else if has_internet {
+            // Online mode without commit hash
             println!("\n🔍 Fetching latest commit SHA from remote repository...");
-            let commit_sha = if let Some(hash) = &args.commit_hash {
-                hash.value()
-            } else if let Some(tag) = &args.tag_name {
+            let commit_sha = if let Some(tag) = &args.tag_name {
                 get_remote_commit_sha_without_clone(
                     git_url.value().as_str(),
                     None,
@@ -1171,6 +1180,8 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                 &commit_sha,
             )
         } else {
+            // Offline mode without commit hash
+            println!("📡 Offline mode: Creating snippet without commit hash");
             SnippetFile::new_without_commit(
                 git_url.value().as_str(),
                 &git_option_type,
