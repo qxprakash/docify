@@ -1139,6 +1139,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                 &hash.value(),
                 &args.file_path.value(),
                 &hash.value(),
+                &args.item_ident.as_ref().unwrap().to_string(),
             )
         } else if let Some(tag) = &args.tag_name {
             // Tag case
@@ -1154,6 +1155,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     &tag.value(),
                     &args.file_path.value(),
                     &commit_sha,
+                    &args.item_ident.as_ref().unwrap().to_string(),
                 )
             } else {
                 println!("📡 Offline mode: Creating snippet without commit hash for tag");
@@ -1162,6 +1164,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     "tag",
                     &tag.value(),
                     &args.file_path.value(),
+                    &args.item_ident.as_ref().unwrap().to_string(),
                 )
             }
         } else if let Some(branch) = &args.branch_name {
@@ -1178,6 +1181,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     branch.value().as_str(),
                     &args.file_path.value(),
                     &commit_sha,
+                    &args.item_ident.as_ref().unwrap().to_string(),
                 )
             } else {
                 println!("📡 Offline mode: Creating snippet without commit hash for branch");
@@ -1186,6 +1190,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     "branch",
                     branch.value().as_str(),
                     &args.file_path.value(),
+                    &args.item_ident.as_ref().unwrap().to_string(),
                 )
             }
         } else {
@@ -1196,12 +1201,14 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                 SnippetFile::new_for_default_branch(
                     git_url.value().as_str(),
                     &args.file_path.value(),
+                    &args.item_ident.as_ref().unwrap().to_string(),
                     Some(&commit_sha),
                 )
             } else {
                 SnippetFile::new_for_default_branch(
                     git_url.value().as_str(),
                     &args.file_path.value(),
+                    &args.item_ident.as_ref().unwrap().to_string(),
                     None,
                 )
             }
@@ -1266,11 +1273,21 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         if let Some(snippet_name) = existing_snippet_path {
             println!("using existing snippet path skipping cloning");
             let snippet_path = snippets_dir.join(snippet_name);
-            let file_content_with_ident = extract_item_from_file(
-                &snippet_path,
-                &args.item_ident.as_ref().unwrap().to_string(),
-            )?;
-            let formatted_content = fix_indentation(&file_content_with_ident);
+            // let file_content_with_ident = extract_item_from_file(
+            //     &snippet_path,
+            //     &args.item_ident.as_ref().unwrap().to_string(),
+            // )?;
+            let content = fs::read_to_string(&snippet_path).map_err(|e| {
+                Error::new(
+                    args.file_path.span(),
+                    format!(
+                        "Failed to read snippet file: {} at path: {}",
+                        e,
+                        snippet_path.display()
+                    ),
+                )
+            })?;
+            let formatted_content = fix_indentation(&content);
             let output = into_example(&formatted_content, lang);
             println!(
                 "embed_internal_str ----> Final output length: {}",
@@ -1290,35 +1307,45 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         let source_path = repo_dir.join(&args.file_path.value());
         println!("Reading source file from: {}", source_path.display());
 
-        let content = fs::read_to_string(&source_path).map_err(|e| {
-            Error::new(
-                args.file_path.span(),
-                format!("Failed to read file from repo: {}", e),
-            )
-        })?;
+        let extracted_content: String =
+            extract_item_from_file(&source_path, &args.item_ident.as_ref().unwrap().to_string())?;
+
+        println!(
+            "extracted_content: from extract_item_from_file using ident ----> {} \n\n extracted content {}",
+            args.item_ident.as_ref().unwrap().to_string(),
+            extracted_content
+        );
+
+        // let content = fs::read_to_string(&source_path).map_err(|e| {
+        //     Error::new(
+        //         args.file_path.span(),
+        //         format!("Failed to read file from repo: {}", e),
+        //     )
+        // })?;
 
         let snippet_path = snippets_dir.join(&new_snippet.full_name);
         println!(
             "Writing content to snippet file: {}",
             snippet_path.display()
         );
-        fs::write(&snippet_path, content).map_err(|e| {
+        fs::write(&snippet_path, extracted_content.clone()).map_err(|e| {
             Error::new(
                 Span::call_site(),
                 format!("Failed to write snippet file: {}", e),
             )
         })?;
+
         println!(
             "✅ Wrote content to snippet file at path: {}",
             snippet_path.display()
         );
 
-        let file_content_with_ident = extract_item_from_file(
-            &snippet_path,
-            &args.item_ident.as_ref().unwrap().to_string(),
-        )?;
+        // let file_content_with_ident = extract_item_from_file(
+        //     &snippet_path,
+        //     &args.item_ident.as_ref().unwrap().to_string(),
+        // )?;
 
-        let formatted_content = fix_indentation(&file_content_with_ident);
+        let formatted_content = fix_indentation(&extracted_content);
         let output = into_example(&formatted_content, lang);
         println!(
             "embed_internal_str ----> Final output length: {}",

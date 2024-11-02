@@ -399,30 +399,25 @@ impl SnippetFile {
         git_option_type: &str,
         git_option_value: &str,
         path: &str,
+        item_ident: &str,
     ) -> Self {
-        println!("\n📝 Creating new SnippetFile.. name without commit.");
+        println!("\n📝 Creating new SnippetFile...");
         println!("ℹ️  Input path: {}", path);
-
-        let path_buf = PathBuf::from(path);
-        let file_name = path_buf
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("unknown");
-        println!("ℹ️  Extracted filename: {}", file_name);
+        println!("ℹ️  Item identifier: {}", item_ident);
 
         let prefix = format!(
             "{}-{}-{}-{}",
             hash_git_url(git_url),
             hash_git_option(git_option_type, git_option_value),
             hash_string(path),
-            file_name,
+            item_ident,
         );
         println!("ℹ️  Generated prefix: {}", prefix);
 
         Self {
             prefix: prefix.clone(),
             commit_hash: None,
-            full_name: prefix,
+            full_name: format!("{}.rs", prefix),
         }
     }
 
@@ -432,14 +427,26 @@ impl SnippetFile {
         git_option_value: &str,
         path: &str,
         commit_sha: &str,
+        item_ident: &str,
     ) -> Self {
-        println!("\n📝 Creating new SnippetFile.. name with commit.");
-        let base = Self::new_without_commit(git_url, git_option_type, git_option_value, path);
-        let full_name = format!("{}-{}.rs", base.prefix, commit_sha);
+        println!("\n📝 Creating new SnippetFile...");
+        println!("ℹ️  Input path: {}", path);
+        println!("ℹ️  Item identifier: {}", item_ident);
+
+        let prefix = format!(
+            "{}-{}-{}-{}",
+            hash_git_url(git_url),
+            hash_git_option(git_option_type, git_option_value),
+            hash_string(path),
+            item_ident,
+        );
+        println!("ℹ️  Generated prefix: {}", prefix);
+
+        let full_name = format!("{}-{}.rs", prefix, commit_sha);
         println!("✅ Created snippet filename: {}", full_name);
 
         Self {
-            prefix: base.prefix,
+            prefix,
             commit_hash: Some(commit_sha.to_string()),
             full_name,
         }
@@ -502,23 +509,21 @@ impl SnippetFile {
     }
 
     /// Creates a new SnippetFile for default branch case (when no branch is specified)
-    pub fn new_for_default_branch(git_url: &str, path: &str, commit_sha: Option<&str>) -> Self {
+    pub fn new_for_default_branch(
+        git_url: &str,
+        path: &str,
+        item_ident: &str,
+        commit_sha: Option<&str>,
+    ) -> Self {
         println!("\n📝 Creating new SnippetFile for default branch case");
         println!("ℹ️  Input path: {}", path);
+        println!("ℹ️  Item identifier: {}", item_ident);
 
-        let path_buf = PathBuf::from(path);
-        let file_name = path_buf
-            .file_name()
-            .and_then(|f| f.to_str())
-            .unwrap_or("unknown");
-        println!("ℹ️  Extracted filename: {}", file_name);
-
-        // Create prefix without git option hash for flexibility
         let prefix = format!(
             "{}-{}-{}",
             hash_git_url(git_url),
             hash_string(path),
-            file_name,
+            item_ident,
         );
         println!("ℹ️  Generated prefix: {}", prefix);
 
@@ -535,7 +540,7 @@ impl SnippetFile {
             Self {
                 prefix: prefix.clone(),
                 commit_hash: None,
-                full_name: prefix,
+                full_name: format!("{}.rs", prefix),
             }
         }
     }
