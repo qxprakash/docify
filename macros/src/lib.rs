@@ -1307,6 +1307,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     None,
                     Some(tag.value().as_str()),
                 )?;
+                println!("commit hash for tag: {} -> {}", tag.value(), commit_sha);
                 SnippetFile::new_with_commit(
                     git_url.value().as_str(),
                     "tag",
@@ -1333,6 +1334,11 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     Some(branch.value().as_str()),
                     None,
                 )?;
+                println!(
+                    "commit hash for branch: {} -> {}",
+                    branch.value(),
+                    commit_sha
+                );
                 SnippetFile::new_with_commit(
                     git_url.value().as_str(),
                     "branch",
@@ -1356,6 +1362,10 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             if has_internet {
                 let commit_sha =
                     get_remote_commit_sha_without_clone(git_url.value().as_str(), None, None)?;
+                println!(
+                    "branch not provided getting latest commit hash for the default branch -> {}",
+                    commit_sha
+                );
                 SnippetFile::new_for_default_branch(
                     git_url.value().as_str(),
                     &args.file_path.value(),
