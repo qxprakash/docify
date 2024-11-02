@@ -1254,6 +1254,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         ));
     }
 
+    // get the root of the crate
     let crate_root = caller_crate_root()
         .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
 
@@ -1280,14 +1281,22 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             (None, None)
         };
 
+        // print the git option type and value
         if let (Some(opt_type), Some(opt_value)) = (&git_option_type, &git_option_value) {
             println!("Git option type: {}, value: {}", opt_type, opt_value);
         } else {
             println!("Using flexible naming without git options");
         }
 
-        // need to add a check here if internet is not present but commit hash is provided
-        // Create snippet file object based on connectivity
+        // if git option it present the name of the snippet will be of the format
+        // [git-url-hash]-[git-option-hash]-[path-hash]-[ident_name]-[full-commit-hash].rs
+
+        // if no git option is present the name of the snippet will be of the format
+        // this will be applicable only when none of branch / commit / tag is provided
+        // [git-url-hash]-[path-hash]-[ident_name]-[full-commit-hash].rs
+
+        // first create the snippet file name based on the passed arguments
+
         let new_snippet = if let Some(hash) = &args.commit_hash {
             // If commit hash is provided, use it regardless of internet connectivity
             println!("Using provided commit hash: {}", hash.value());
@@ -1381,8 +1390,17 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                 )
             }
         };
-        println!("\n🔍 Checking for existing snippets...");
 
+        // snippet file name is created now check if it already exists
+
+        println!(
+            "created snippet file name based on the passed arguments ----> {}",
+            new_snippet.full_name
+        );
+
+        println!("\n🔍 Now Checking if the snippet file already exists");
+
+        // create the snippets directory if it doesn't exist
         let snippets_dir = get_or_create_snippets_dir()?;
 
         // Check for existing snippet
@@ -1426,6 +1444,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     }
                 }
             } else if !has_internet {
+                println!("No matching snippet found and no internet connection available");
                 return Err(Error::new(
                     Span::call_site(),
                     "No matching snippet found and no internet connection available",
@@ -1441,10 +1460,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         if let Some(snippet_name) = existing_snippet_path {
             println!("using existing snippet path skipping cloning");
             let snippet_path = snippets_dir.join(snippet_name);
-            // let file_content_with_ident = extract_item_from_file(
-            //     &snippet_path,
-            //     &args.item_ident.as_ref().unwrap().to_string(),
-            // )?;
+
             let content = fs::read_to_string(&snippet_path).map_err(|e| {
                 Error::new(
                     args.file_path.span(),
@@ -1484,13 +1500,6 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             extracted_content
         );
 
-        // let content = fs::read_to_string(&source_path).map_err(|e| {
-        //     Error::new(
-        //         args.file_path.span(),
-        //         format!("Failed to read file from repo: {}", e),
-        //     )
-        // })?;
-
         let snippet_path = snippets_dir.join(&new_snippet.full_name);
         println!(
             "Writing content to snippet file: {}",
@@ -1507,11 +1516,6 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             "✅ Wrote content to snippet file at path: {}",
             snippet_path.display()
         );
-
-        // let file_content_with_ident = extract_item_from_file(
-        //     &snippet_path,
-        //     &args.item_ident.as_ref().unwrap().to_string(),
-        // )?;
 
         let formatted_content = fix_indentation(&extracted_content);
         let output = into_example(&formatted_content, lang);
