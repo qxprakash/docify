@@ -1266,20 +1266,10 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         );
 
         // Determine git option type and value
-        let (git_option_type, git_option_value) = if let Some(hash) = &args.commit_hash {
-            println!("Using commit hash: {}", hash.value());
-            (Some("commit".to_string()), Some(hash.value()))
-        } else if let Some(tag) = &args.tag_name {
-            println!("Using tag: {}", tag.value());
-            (Some("tag".to_string()), Some(tag.value()))
-        } else if let Some(ref branch) = args.branch_name {
-            println!("Using provided branch: {}", branch.value());
-            (Some("branch".to_string()), Some(branch.value()))
-        } else {
-            // No specific git option provided - default branch case
-            println!("No specific git option provided, using flexible naming");
-            (None, None)
-        };
+
+        // Replace the existing git option determination code with:
+        let (git_option_type, git_option_value) =
+            get_git_options(&args.commit_hash, &args.tag_name, &args.branch_name);
 
         // print the git option type and value
         if let (Some(opt_type), Some(opt_value)) = (&git_option_type, &git_option_value) {

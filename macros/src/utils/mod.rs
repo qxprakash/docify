@@ -468,3 +468,25 @@ pub fn get_or_create_snippets_dir() -> Result<PathBuf> {
 
     Ok(snippets_dir)
 }
+
+/// Determines the git option type and value based on the provided arguments
+pub fn get_git_options(
+    commit_hash: &Option<LitStr>,
+    tag_name: &Option<LitStr>,
+    branch_name: &Option<LitStr>,
+) -> (Option<String>, Option<String>) {
+    if let Some(hash) = commit_hash {
+        println!("Using commit hash: {}", hash.value());
+        (Some("commit".to_string()), Some(hash.value()))
+    } else if let Some(tag) = tag_name {
+        println!("Using tag: {}", tag.value());
+        (Some("tag".to_string()), Some(tag.value()))
+    } else if let Some(branch) = branch_name {
+        println!("Using provided branch: {}", branch.value());
+        (Some("branch".to_string()), Some(branch.value()))
+    } else {
+        // No specific git option provided - default branch case
+        println!("No specific git option provided, using flexible naming");
+        (None, None)
+    }
+}
