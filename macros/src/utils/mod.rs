@@ -11,96 +11,6 @@ use syn::Result;
 
 use crate::{caller_crate_root, source_excerpt, ItemVisitor};
 
-pub fn manage_snippet(crate_root: &Path, file_path: &str, item_ident: &str) -> Result<String> {
-    let snippets_dir = crate_root.join(".snippets");
-    println!("Snippets directory: {}", snippets_dir.display());
-
-    // Ensure snippets directory exists
-    fs::create_dir_all(&snippets_dir).map_err(|e| {
-        Error::new(
-            Span::call_site(),
-            format!("Failed to create .snippets directory: {}", e),
-        )
-    })?;
-
-    let snippet_path = generate_snippet_path(&snippets_dir, file_path, item_ident);
-    println!("Snippet path: {}", snippet_path.display());
-
-    let has_internet = check_internet_connectivity();
-    println!(
-        "Internet connectivity: {}",
-        if has_internet {
-            "Available"
-        } else {
-            "Not available"
-        }
-    );
-
-    if !has_internet {
-        println!("No internet connection, attempting to read from cached snippet");
-        // Try to read from the snippet file
-        match fs::read_to_string(&snippet_path) {
-            Ok(content) => {
-                println!("Successfully read content from cached snippet");
-                Ok(content)
-            }
-            Err(e) => Err(Error::new(
-                Span::call_site(),
-                format!(
-                    "No internet connection and failed to read cached snippet at {}: {}.
-                        Please ensure you have internet connectivity for the first run.",
-                    snippet_path.display(),
-                    e
-                ),
-            )),
-        }
-    } else {
-        // Internet is available, proceed with full path checking and content updating
-        let full_path = crate_root.join(file_path);
-        println!(
-            "Internet available, checking file at: {}",
-            full_path.display()
-        );
-
-        let existing_content = fs::read_to_string(&snippet_path).ok();
-        let new_content = extract_item_from_file(&full_path, item_ident)?;
-
-        if existing_content.as_ref().map(|c| hash_content(c)) != Some(hash_content(&new_content)) {
-            println!("Updating snippet file with new content");
-            fs::write(&snippet_path, &new_content).map_err(|e| {
-                Error::new(
-                    Span::call_site(),
-                    format!("Failed to write snippet file: {}", e),
-                )
-            })?;
-        } else {
-            println!("Snippet is up to date");
-        }
-
-        Ok(new_content)
-    }
-}
-
-pub fn generate_snippet_path(snippets_dir: &Path, file_path: &str, item_ident: &str) -> PathBuf {
-    println!(
-        "inside generate_snippet_path ----> Snippets directory: {}",
-        snippets_dir.display()
-    );
-    println!(
-        "inside generate_snippet_path ----> File path: {}",
-        file_path
-    );
-    println!(
-        "inside generate_snippet_path ----> Item ident: {}",
-        item_ident
-    );
-    let path = PathBuf::from(file_path);
-    let file_name = path
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or("unknown");
-    snippets_dir.join(format!(".docify-snippet-{}-{}", file_name, item_ident))
-}
 pub fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> {
     println!(
         "inside extract_item_from_file ----> Extracting item '{}' from '{}'",
@@ -147,14 +57,6 @@ pub fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<Stri
     println!("Successfully extracted item from file");
     let (item, style) = visitor.results.first().unwrap();
     source_excerpt(&source_code, item, *style)
-}
-
-pub fn hash_content(content: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(content);
-    let result = format!("{:x}", hasher.finalize());
-    println!("Content hash: {}", result);
-    result
 }
 
 /// Checks if there is an active internet connection by attempting to connect to multiple reliable hosts
@@ -368,23 +270,6 @@ pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<PathBu
     Ok(commit_dir)
 }
 
-/// Generates a deterministic filename for the snippet
-pub fn generate_snippet_filename(commit_sha: &str, path: &str) -> String {
-    let path_buf = PathBuf::from(path);
-    let file_name = path_buf
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or("unknown");
-
-    format!("{}-{}-{}", &commit_sha[..8], hash_path(path), file_name)
-}
-
-fn hash_path(path: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(path.as_bytes());
-    format!("{:.8x}", hasher.finalize()) // First 8 chars of hash
-}
-
 /// Represents a parsed snippet filename
 pub struct SnippetFile {
     pub prefix: String,
@@ -557,54 +442,6 @@ fn hash_git_option(option_type: &str, value: &str) -> String {
 }
 
 /// Helper function to get default branch
-
-pub fn get_default_branch(git_url: &str) -> Result<String> {
-    let temp_dir = tempfile::Builder::new()
-        .prefix("docify-temp-")
-        .rand_bytes(5)
-        .tempdir()
-        .map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to create temp dir: {}", e),
-            )
-        })?;
-
-    let repo = Repository::init(temp_dir.path())
-        .map_err(|e| Error::new(Span::call_site(), format!("Failed to init repo: {}", e)))?;
-
-    let mut remote = repo
-        .remote_anonymous(git_url)
-        .map_err(|e| Error::new(Span::call_site(), format!("Failed to create remote: {}", e)))?;
-
-    remote.connect(git2::Direction::Fetch).map_err(|e| {
-        Error::new(
-            Span::call_site(),
-            format!("Failed to connect to remote: {}", e),
-        )
-    })?;
-
-    let default_branch = remote
-        .default_branch()
-        .map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to get default branch: {}", e),
-            )
-        })?
-        .as_str()
-        .ok_or_else(|| Error::new(Span::call_site(), "Invalid default branch name"))?
-        .to_string();
-
-    remote
-        .disconnect()
-        .map_err(|e| Error::new(Span::call_site(), format!("Failed to disconnect: {}", e)))?;
-
-    Ok(default_branch
-        .strip_prefix("refs/heads/")
-        .unwrap_or(&default_branch)
-        .to_string())
-}
 
 fn hash_git_url(url: &str) -> String {
     println!("ℹ️  Hashing git URL: {}", url);

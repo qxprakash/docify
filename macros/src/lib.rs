@@ -553,6 +553,7 @@ mod kw {
     syn::custom_keyword!(tag);
     syn::custom_keyword!(item);
 }
+
 struct EmbedArgs {
     git_url: Option<LitStr>,
     file_path: LitStr,
@@ -562,88 +563,70 @@ struct EmbedArgs {
     item_ident: Option<Ident>,
 }
 
-impl Parse for EmbedArgs {
-    fn parse(input: ParseStream) -> Result<Self> {
-        // First try to parse as positional arguments
-        if !input.peek(kw::git) && !input.peek(kw::path) {
-            let file_path: LitStr = input.parse()?;
+// Manually implement Debug
+impl std::fmt::Debug for EmbedArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbedArgs")
+            .field("git_url", &self.git_url.as_ref().map(|s| s.value()))
+            .field("file_path", &self.file_path.value())
+            .field("branch_name", &self.branch_name.as_ref().map(|s| s.value()))
+            .field("commit_hash", &self.commit_hash.as_ref().map(|s| s.value()))
+            .field("tag_name", &self.tag_name.as_ref().map(|s| s.value()))
+            .field(
+                "item_ident",
+                &self.item_ident.as_ref().map(|i| i.to_string()),
+            )
+            .finish()
+    }
+}
 
-            // Validate that file_path is not a URL
-            if file_path.value().starts_with("http://") || file_path.value().starts_with("https://")
-            {
-                return Err(Error::new(
-                    file_path.span(),
-                    "First positional argument must be a file path, not a URL. For git URLs, use named arguments: git: \"url\", path: \"file_path\"",
-                ));
-            }
+impl EmbedArgs {
+    /// Creates a new EmbedArgs instance with validation
+    fn new(
+        git_url: Option<LitStr>,
+        file_path: LitStr,
+        branch_name: Option<LitStr>,
+        commit_hash: Option<LitStr>,
+        tag_name: Option<LitStr>,
+        item_ident: Option<Ident>,
+    ) -> Result<Self> {
+        let args = Self {
+            git_url,
+            file_path,
+            branch_name,
+            commit_hash,
+            tag_name,
+            item_ident,
+        };
+        args.validate()?;
+        Ok(args)
+    }
 
-            let item_ident = if input.peek(Token![,]) {
-                input.parse::<Token![,]>()?;
-                Some(input.parse()?)
-            } else {
-                None
-            };
+    /// Validates all argument constraints
+    fn validate(&self) -> Result<()> {
+        self.validate_file_path()?;
+        self.validate_git_refs()?;
+        self.validate_git_dependencies()?;
+        Ok(())
+    }
 
-            return Ok(EmbedArgs {
-                git_url: None,
-                file_path,
-                branch_name: None,
-                commit_hash: None,
-                tag_name: None,
-                item_ident,
-            });
+    /// Ensures file path is valid based on context
+    fn validate_file_path(&self) -> Result<()> {
+        if self.git_url.is_none()
+            && (self.file_path.value().starts_with("http://")
+                || self.file_path.value().starts_with("https://"))
+        {
+            return Err(Error::new(
+                self.file_path.span(),
+                "File path cannot be a URL. Use git: \"url\" for git repositories",
+            ));
         }
+        Ok(())
+    }
 
-        // If not positional, parse as named arguments
-        let mut git_url = None;
-        let mut file_path = None;
-        let mut branch_name = None;
-        let mut commit_hash = None;
-        let mut tag_name = None;
-        let mut item_ident = None;
-
-        while !input.is_empty() {
-            let lookahead = input.lookahead1();
-
-            if lookahead.peek(kw::git) {
-                let _: kw::git = input.parse()?;
-                let _: Token![:] = input.parse()?;
-                git_url = Some(input.parse()?);
-            } else if lookahead.peek(kw::path) {
-                let _: kw::path = input.parse()?;
-                let _: Token![:] = input.parse()?;
-                file_path = Some(input.parse()?);
-            } else if lookahead.peek(kw::branch) {
-                let _: kw::branch = input.parse()?;
-                let _: Token![:] = input.parse()?;
-                branch_name = Some(input.parse()?);
-            } else if lookahead.peek(kw::commit) {
-                let _: kw::commit = input.parse()?;
-                let _: Token![:] = input.parse()?;
-                commit_hash = Some(input.parse()?);
-            } else if lookahead.peek(kw::tag) {
-                let _: kw::tag = input.parse()?;
-                let _: Token![:] = input.parse()?;
-                tag_name = Some(input.parse()?);
-            } else if lookahead.peek(kw::item) {
-                let _: kw::item = input.parse()?;
-                let _: Token![:] = input.parse()?;
-                item_ident = Some(input.parse()?);
-            } else {
-                return Err(lookahead.error());
-            }
-
-            if !input.is_empty() {
-                let _: Token![,] = input.parse()?;
-            }
-        }
-
-        // Validate required parameters
-        let file_path =
-            file_path.ok_or_else(|| Error::new(Span::call_site(), "path parameter is required"))?;
-
-        // Validate that only one of branch, commit, or tag is specified
-        let ref_count = [&branch_name, &commit_hash, &tag_name]
+    /// Ensures only one git reference type is specified
+    fn validate_git_refs(&self) -> Result<()> {
+        let ref_count = [&self.branch_name, &self.commit_hash, &self.tag_name]
             .iter()
             .filter(|&&x| x.is_some())
             .count();
@@ -654,36 +637,211 @@ impl Parse for EmbedArgs {
                 "Only one of branch, commit, or tag can be specified",
             ));
         }
+        Ok(())
+    }
 
-        // Validate that branch, commit, or tag are only used with git parameter
-        if git_url.is_none()
-            && (branch_name.is_some() || commit_hash.is_some() || tag_name.is_some())
+    /// Ensures git-specific arguments are only used with git URLs
+    fn validate_git_dependencies(&self) -> Result<()> {
+        if self.git_url.is_none()
+            && (self.branch_name.is_some() || self.commit_hash.is_some() || self.tag_name.is_some())
         {
             return Err(Error::new(
                 Span::call_site(),
-                "branch, commit, or tag can only be used when git parameter is specified",
+                "branch, commit, or tag can only be used with git parameter",
             ));
         }
+        Ok(())
+    }
 
-        Ok(EmbedArgs {
-            git_url,
+    /// Parses positional arguments format
+    fn parse_positional(input: ParseStream) -> Result<Self> {
+        let file_path: LitStr = input.parse()?;
+
+        let item_ident = if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
+
+        Self::new(None, file_path, None, None, None, item_ident)
+    }
+
+    /// Parses named arguments format
+    fn parse_named(input: ParseStream) -> Result<Self> {
+        let mut builder = NamedArgsBuilder::new();
+
+        while !input.is_empty() {
+            builder.set_arg(input)?;
+        }
+
+        builder.build()
+    }
+}
+
+/// Builder for collecting named arguments during parsing
+#[derive(Default)]
+struct NamedArgsBuilder {
+    git_url: Option<LitStr>,
+    file_path: Option<LitStr>,
+    branch_name: Option<LitStr>,
+    commit_hash: Option<LitStr>,
+    tag_name: Option<LitStr>,
+    item_ident: Option<Ident>,
+}
+
+impl NamedArgsBuilder {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn set_arg(&mut self, input: ParseStream) -> Result<()> {
+        let lookahead = input.lookahead1();
+
+        if lookahead.peek(kw::git) {
+            self.parse_git_url(input)?;
+        } else if lookahead.peek(kw::path) {
+            self.parse_file_path(input)?;
+        } else if lookahead.peek(kw::branch) {
+            self.parse_branch(input)?;
+        } else if lookahead.peek(kw::commit) {
+            self.parse_commit(input)?;
+        } else if lookahead.peek(kw::tag) {
+            self.parse_tag(input)?;
+        } else if lookahead.peek(kw::item) {
+            self.parse_item(input)?;
+        } else {
+            return Err(lookahead.error());
+        }
+
+        if !input.is_empty() {
+            input.parse::<Token![,]>()?;
+        }
+        Ok(())
+    }
+
+    fn parse_git_url(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::git = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.git_url = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_file_path(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::path = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.file_path = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_branch(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::branch = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.branch_name = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_commit(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::commit = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.commit_hash = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_tag(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::tag = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.tag_name = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_item(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::item = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.item_ident = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn build(self) -> Result<EmbedArgs> {
+        let file_path = self
+            .file_path
+            .ok_or_else(|| Error::new(Span::call_site(), "path parameter is required"))?;
+
+        EmbedArgs::new(
+            self.git_url,
             file_path,
-            branch_name,
-            commit_hash,
-            tag_name,
-            item_ident,
-        })
+            self.branch_name,
+            self.commit_hash,
+            self.tag_name,
+            self.item_ident,
+        )
+    }
+}
+
+impl Parse for EmbedArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if !input.peek(kw::git) && !input.peek(kw::path) {
+            return Self::parse_positional(input);
+        }
+        Self::parse_named(input)
     }
 }
 
 impl ToTokens for EmbedArgs {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
-        tokens.extend(self.file_path.to_token_stream());
-        let Some(item_ident) = &self.item_ident else {
+        // For positional arguments style
+        if self.git_url.is_none() && !self.has_named_args() {
+            self.file_path.to_tokens(tokens);
+            if let Some(ref item) = self.item_ident {
+                Token![,](Span::call_site()).to_tokens(tokens);
+                item.to_tokens(tokens);
+            }
             return;
-        };
-        tokens.extend(quote!(,));
-        tokens.extend(item_ident.to_token_stream());
+        }
+
+        // For named arguments style
+        let mut args = TokenStream2::new();
+
+        if let Some(ref git) = self.git_url {
+            quote!(git: #git,).to_tokens(&mut args);
+        }
+
+        quote!(path: #self.file_path,).to_tokens(&mut args);
+
+        if let Some(ref branch) = self.branch_name {
+            quote!(branch: #branch,).to_tokens(&mut args);
+        }
+
+        if let Some(ref commit) = self.commit_hash {
+            quote!(commit: #commit,).to_tokens(&mut args);
+        }
+
+        if let Some(ref tag) = self.tag_name {
+            quote!(tag: #tag,).to_tokens(&mut args);
+        }
+
+        if let Some(ref item) = self.item_ident {
+            quote!(item: #item,).to_tokens(&mut args);
+        }
+
+        tokens.extend(args);
+    }
+}
+
+// Add this helper method to EmbedArgs impl
+impl EmbedArgs {
+    fn has_named_args(&self) -> bool {
+        self.branch_name.is_some()
+            || self.commit_hash.is_some()
+            || self.tag_name.is_some()
+            || self.git_url.is_some()
+    }
+
+    // Add this method to convert to TokenStream2
+    pub fn to_token_stream(&self) -> TokenStream2 {
+        let mut tokens = TokenStream2::new();
+        self.to_tokens(&mut tokens);
+        tokens
     }
 }
 
