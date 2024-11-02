@@ -6,8 +6,8 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use syn::visit::Visit;
-use syn::Error;
 use syn::Result;
+use syn::{Error, LitStr};
 
 use crate::{caller_crate_root, source_excerpt, ItemVisitor};
 
