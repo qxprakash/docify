@@ -1286,101 +1286,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         // [git-url-hash]-[path-hash]-[ident_name]-[full-commit-hash].rs
 
         // first create the snippet file name based on the passed arguments
-
-        let new_snippet = if let Some(hash) = &args.commit_hash {
-            // If commit hash is provided, use it regardless of internet connectivity
-            println!("Using provided commit hash: {}", hash.value());
-            SnippetFile::new_with_commit(
-                git_url.value().as_str(),
-                "commit",
-                &hash.value(),
-                &args.file_path.value(),
-                &hash.value(),
-                &args.item_ident.as_ref().unwrap().to_string(),
-            )
-        } else if let Some(tag) = &args.tag_name {
-            // Tag case
-            if has_internet {
-                let commit_sha = get_remote_commit_sha_without_clone(
-                    git_url.value().as_str(),
-                    None,
-                    Some(tag.value().as_str()),
-                )?;
-                println!("commit hash for tag: {} -> {}", tag.value(), commit_sha);
-                SnippetFile::new_with_commit(
-                    git_url.value().as_str(),
-                    "tag",
-                    &tag.value(),
-                    &args.file_path.value(),
-                    &commit_sha,
-                    &args.item_ident.as_ref().unwrap().to_string(),
-                )
-            } else {
-                println!("📡 Offline mode: Creating snippet without commit hash for tag");
-                SnippetFile::new_without_commit(
-                    git_url.value().as_str(),
-                    "tag",
-                    &tag.value(),
-                    &args.file_path.value(),
-                    &args.item_ident.as_ref().unwrap().to_string(),
-                )
-            }
-        } else if let Some(branch) = &args.branch_name {
-            // Explicit branch case
-            if has_internet {
-                let commit_sha = get_remote_commit_sha_without_clone(
-                    git_url.value().as_str(),
-                    Some(branch.value().as_str()),
-                    None,
-                )?;
-                println!(
-                    "commit hash for branch: {} -> {}",
-                    branch.value(),
-                    commit_sha
-                );
-                SnippetFile::new_with_commit(
-                    git_url.value().as_str(),
-                    "branch",
-                    branch.value().as_str(),
-                    &args.file_path.value(),
-                    &commit_sha,
-                    &args.item_ident.as_ref().unwrap().to_string(),
-                )
-            } else {
-                println!("📡 Offline mode: Creating snippet without commit hash for branch");
-                SnippetFile::new_without_commit(
-                    git_url.value().as_str(),
-                    "branch",
-                    branch.value().as_str(),
-                    &args.file_path.value(),
-                    &args.item_ident.as_ref().unwrap().to_string(),
-                )
-            }
-        } else {
-            // Default branch case - more flexible naming
-            if has_internet {
-                let commit_sha =
-                    get_remote_commit_sha_without_clone(git_url.value().as_str(), None, None)?;
-                println!(
-                    "branch not provided getting latest commit hash for the default branch -> {}",
-                    commit_sha
-                );
-                SnippetFile::new_for_default_branch(
-                    git_url.value().as_str(),
-                    &args.file_path.value(),
-                    &args.item_ident.as_ref().unwrap().to_string(),
-                    Some(&commit_sha),
-                )
-            } else {
-                SnippetFile::new_for_default_branch(
-                    git_url.value().as_str(),
-                    &args.file_path.value(),
-                    &args.item_ident.as_ref().unwrap().to_string(),
-                    None,
-                )
-            }
-        };
-
+        let new_snippet = get_snippet_file_name(git_url.value().as_str(), &args, has_internet)?;
         // snippet file name is created now check if it already exists
 
         println!(
@@ -1393,55 +1299,8 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         // create the snippets directory if it doesn't exist
         let snippets_dir = get_or_create_snippets_dir()?;
 
-        // Check for existing snippet
         let existing_snippet_path =
-            if let Some(existing_snippet) = SnippetFile::find_existing(&new_snippet.prefix) {
-                if !has_internet {
-                    println!(
-                        "✅ Found existing snippet (offline mode): .snippets/{}",
-                        existing_snippet.full_name
-                    );
-                    Some(existing_snippet.full_name)
-                } else {
-                    // Online mode comparison
-                    if let (Some(existing_hash), Some(new_hash)) =
-                        (&existing_snippet.commit_hash, &new_snippet.commit_hash)
-                    {
-                        if existing_hash == new_hash {
-                            println!(
-                                "✅ Existing snippet is up to date at: .snippets/{}",
-                                existing_snippet.full_name
-                            );
-                            Some(existing_snippet.full_name)
-                        } else {
-                            println!("ℹ️  Found existing snippet with different commit hash:");
-                            println!("   Current: {}", existing_hash);
-                            println!("   New: {}", new_hash);
-                            println!("🔄 Removing outdated snippet...");
-
-                            // Remove old snippet file
-                            fs::remove_file(snippets_dir.join(&existing_snippet.full_name))
-                                .map_err(|e| {
-                                    Error::new(
-                                        Span::call_site(),
-                                        format!("Failed to remove old snippet file: {}", e),
-                                    )
-                                })?;
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }
-            } else if !has_internet {
-                println!("No matching snippet found and no internet connection available");
-                return Err(Error::new(
-                    Span::call_site(),
-                    "No matching snippet found and no internet connection available",
-                ));
-            } else {
-                None
-            };
+            check_existing_snippet(&new_snippet, has_internet, &snippets_dir)?;
 
         println!("existing_snippet_path: ----> {:?}", existing_snippet_path);
 
@@ -1450,7 +1309,6 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         if let Some(snippet_name) = existing_snippet_path {
             println!("using existing snippet path skipping cloning");
             let snippet_path = snippets_dir.join(snippet_name);
-
             let content = fs::read_to_string(&snippet_path).map_err(|e| {
                 Error::new(
                     args.file_path.span(),
@@ -1508,7 +1366,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         );
 
         let formatted_content = fix_indentation(&extracted_content);
-        let output = into_example(&formatted_content, lang);
+        let output: String = into_example(&formatted_content, lang);
         println!(
             "embed_internal_str ----> Final output length: {}",
             output.len()
