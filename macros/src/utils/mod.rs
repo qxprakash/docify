@@ -90,7 +90,11 @@ fn git_err_to_syn(err: git2::Error) -> syn::Error {
     syn::Error::new(Span::call_site(), format!("Git error: {}", err))
 }
 
-/// Gets commit SHA without cloning entire repo
+/// Helper function to convert io::Error to syn::Error
+fn io_err_to_syn(err: std::io::Error) -> syn::Error {
+    syn::Error::new(Span::call_site(), format!("IO error: {}", err))
+}
+
 pub fn get_remote_commit_sha_without_clone(
     git_url: &str,
     branch: Option<&str>,
@@ -100,78 +104,90 @@ pub fn get_remote_commit_sha_without_clone(
         .prefix("docify-temp-")
         .rand_bytes(5)
         .tempdir()
-        .map_err(|e| {
-            Error::new(
-                Span::call_site(),
-                format!("Failed to create temp dir: {}", e),
-            )
-        })?;
-    println!("Created temp dir: {}", temp_dir.path().display());
+        .map_err(io_err_to_syn)?;
 
     let repo = Repository::init(temp_dir.path()).map_err(git_err_to_syn)?;
     let mut remote = repo.remote_anonymous(git_url).map_err(git_err_to_syn)?;
 
-    println!("Initialized repo");
+    // Set up fetch options
+    let mut fetch_opts = FetchOptions::new();
+    fetch_opts.depth(1); // Only fetch the most recent commit
 
-    // First, fetch the remote HEAD to determine default branch
-    println!("ℹ️  Fetching remote references...");
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks.transfer_progress(|p| {
+        println!(
+            "Fetching: {}/{} objects",
+            p.received_objects(),
+            p.total_objects()
+        );
+        true
+    });
+    fetch_opts.remote_callbacks(callbacks);
+
+    // First connect to get default branch if needed
     remote.connect(Direction::Fetch).map_err(git_err_to_syn)?;
 
-    // Handle default branch resolution with proper error conversion
-    let default_branch = remote
-        .default_branch()
-        .map_err(git_err_to_syn)?
-        .as_str()
-        .map(String::from)
-        .ok_or_else(|| Error::new(Span::call_site(), "Invalid default branch name"))?;
+    // Determine which ref to fetch
+    let refspec = if let Some(tag_name) = tag {
+        format!("refs/tags/{}:refs/tags/{}", tag_name, tag_name)
+    } else {
+        let branch_ref = if let Some(b) = branch {
+            format!("refs/heads/{}", b)
+        } else {
+            // Get default branch name
+            let default_branch = remote
+                .default_branch()
+                .map_err(git_err_to_syn)?
+                .as_str()
+                .map(String::from)
+                .ok_or_else(|| Error::new(Span::call_site(), "Invalid default branch name"))?;
 
-    print!("defult branch --------> {}", default_branch);
+            // Convert refs/heads/main to just refs/heads/main
+            if !default_branch.starts_with("refs/heads/") {
+                format!("refs/heads/{}", default_branch)
+            } else {
+                default_branch
+            }
+        };
+        format!("{}:{}", branch_ref, branch_ref)
+    };
+
+    println!("Fetching ref: {}", refspec);
+
+    // Disconnect before fetch to ensure clean state
     remote.disconnect().map_err(git_err_to_syn)?;
 
-    // Convert refs/heads/main to just main
-    let default_branch = default_branch
-        .strip_prefix("refs/heads/")
-        .unwrap_or(&default_branch);
-
-    println!("ℹ️  Default branch: {}", default_branch);
-
-    // Determine which refs to fetch
-    let refspecs = if let Some(tag_name) = tag {
-        vec![format!("refs/tags/{}:refs/tags/{}", tag_name, tag_name)]
-    } else {
-        let branch_name = branch.unwrap_or(default_branch);
-        vec![format!(
-            "refs/heads/{}:refs/heads/{}",
-            branch_name, branch_name
-        )]
-    };
-
-    println!("Fetching refs: {:?}", refspecs);
+    // Fetch the specific ref
     remote
-        .fetch(
-            refspecs
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .as_slice(),
-            None,
-            None,
-        )
+        .fetch(&[&refspec], Some(&mut fetch_opts), None)
         .map_err(git_err_to_syn)?;
 
-    // Determine which commit to use
-    let commit_id = if let Some(tag_name) = tag {
-        let tag_ref = repo
-            .find_reference(&format!("refs/tags/{}", tag_name))
-            .map_err(git_err_to_syn)?;
-        tag_ref.peel_to_commit().map_err(git_err_to_syn)?.id()
+    // Get commit ID
+    let reference = if let Some(tag_name) = tag {
+        repo.find_reference(&format!("refs/tags/{}", tag_name))
+            .map_err(git_err_to_syn)?
     } else {
-        let branch_name = branch.unwrap_or(default_branch);
-        let reference = repo
-            .find_reference(&format!("refs/heads/{}", branch_name))
-            .map_err(git_err_to_syn)?;
-        reference.peel_to_commit().map_err(git_err_to_syn)?.id()
+        let ref_name = if let Some(b) = branch {
+            format!("refs/heads/{}", b)
+        } else {
+            // Use the actual fetched ref name
+            let default_branch = remote
+                .default_branch()
+                .map_err(git_err_to_syn)?
+                .as_str()
+                .map(String::from)
+                .ok_or_else(|| Error::new(Span::call_site(), "Invalid default branch name"))?;
+
+            if !default_branch.starts_with("refs/heads/") {
+                format!("refs/heads/{}", default_branch)
+            } else {
+                default_branch
+            }
+        };
+        repo.find_reference(&ref_name).map_err(git_err_to_syn)?
     };
+
+    let commit_id = reference.peel_to_commit().map_err(git_err_to_syn)?.id();
 
     Ok(commit_id.to_string())
 }
