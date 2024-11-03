@@ -459,11 +459,15 @@ fn hash_git_option(option_type: &str, value: &str) -> String {
     hash_string(&format!("{}-{}", option_type, value))
 }
 
-/// Helper function to get default branch
+/// Normalizes a git URL by removing trailing .git if present
+fn normalize_git_url(url: &str) -> &str {
+    url.strip_suffix(".git").unwrap_or(url)
+}
 
 fn hash_git_url(url: &str) -> String {
     println!("ℹ️  Hashing git URL: {}", url);
-    hash_string(url)
+    let normalized_url = normalize_git_url(url);
+    hash_string(normalized_url)
 }
 
 /// Creates and returns the snippets directory path, ensuring it exists
