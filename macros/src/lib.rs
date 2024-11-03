@@ -563,7 +563,7 @@ struct EmbedArgs {
     item_ident: Option<Ident>,
 }
 
-// Manually implement Debug
+// implementing Debug for EmbedArgs for easier debugging
 impl std::fmt::Debug for EmbedArgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmbedArgs")
@@ -652,10 +652,14 @@ impl EmbedArgs {
         }
         Ok(())
     }
-
     /// Parses positional arguments format
     fn parse_positional(input: ParseStream) -> Result<Self> {
         let file_path: LitStr = input.parse()?;
+
+        // Check for empty file path
+        if file_path.value().trim().is_empty() {
+            return Err(Error::new(file_path.span(), "File path cannot be empty"));
+        }
 
         let item_ident = if input.peek(Token![,]) {
             input.parse::<Token![,]>()?;
