@@ -1261,14 +1261,28 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
     // get the root of the crate
     let crate_root = caller_crate_root()
         .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
-
     if let Some(git_url) = &args.git_url {
-        let has_internet = check_internet_connectivity();
+        let allow_updates =
+            !std::env::var("DOCS_RS").is_ok() && !std::env::var("DOCIFY_DISABLE_UPDATES").is_ok();
+
+        println!("env DOCS_RS: {:?}", std::env::var("DOCS_RS"));
         println!(
-            "\n🌐 Internet connectivity: {}",
-            if has_internet { "Online" } else { "Offline" }
+            "env DOCIFY_DISABLE_UPDATES: {:?}",
+            std::env::var("DOCIFY_DISABLE_UPDATES")
         );
 
+        println!(
+            "\n🌐 Updates {}",
+            if allow_updates {
+                "allowing updates"
+            } else if std::env::var("DOCS_RS").is_ok() {
+                "Offline (docs.rs build)"
+            } else if std::env::var("DOCIFY_DISABLE_UPDATES").is_ok() {
+                "Offline (updates disabled)"
+            } else {
+                "updates disabled"
+            }
+        );
         // Determine git option type and value
 
         // Replace the existing git option determination code with:
@@ -1290,7 +1304,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         // [git-url-hash]-[path-hash]-[ident_name]-[full-commit-hash].rs
 
         // first create the snippet file name based on the passed arguments
-        let new_snippet = get_snippet_file_name(git_url.value().as_str(), &args, has_internet)?;
+        let new_snippet = get_snippet_file_name(git_url.value().as_str(), &args, allow_updates)?;
         // snippet file name is created now check if it already exists
 
         println!(
@@ -1304,7 +1318,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         let snippets_dir = get_or_create_snippets_dir()?;
 
         let existing_snippet_path =
-            check_existing_snippet(&new_snippet, has_internet, &snippets_dir)?;
+            check_existing_snippet(&new_snippet, allow_updates, &snippets_dir)?;
 
         println!("existing_snippet_path: ----> {:?}", existing_snippet_path);
 
@@ -1323,6 +1337,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
                     ),
                 )
             })?;
+
             let formatted_content = fix_indentation(&content);
             let output = into_example(&formatted_content, lang);
             println!(
@@ -1338,6 +1353,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             git_url.value().as_str(),
             &new_snippet.commit_hash.as_ref().unwrap(),
         )?;
+
         println!("✅ Cloned and checked out repo");
 
         let source_path = repo_dir.join(&args.file_path.value());

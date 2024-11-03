@@ -517,7 +517,7 @@ pub fn get_git_options(
 pub fn get_snippet_file_name(
     git_url: &str,
     args: &crate::EmbedArgs,
-    has_internet: bool,
+    allow_updates: bool,
 ) -> Result<SnippetFile> {
     if let Some(hash) = &args.commit_hash {
         // If commit hash is provided, use it regardless of internet connectivity
@@ -533,7 +533,7 @@ pub fn get_snippet_file_name(
     }
 
     if let Some(tag) = &args.tag_name {
-        return if has_internet {
+        return if allow_updates {
             let commit_sha =
                 get_remote_commit_sha_without_clone(git_url, None, Some(tag.value().as_str()))?;
             println!("commit hash for tag: {} -> {}", tag.value(), commit_sha);
@@ -558,7 +558,7 @@ pub fn get_snippet_file_name(
     }
 
     if let Some(branch) = &args.branch_name {
-        return if has_internet {
+        return if allow_updates {
             let commit_sha =
                 get_remote_commit_sha_without_clone(git_url, Some(branch.value().as_str()), None)?;
             println!(
@@ -587,7 +587,7 @@ pub fn get_snippet_file_name(
     }
 
     // Default branch case - more flexible naming
-    if has_internet {
+    if allow_updates {
         let commit_sha = get_remote_commit_sha_without_clone(git_url, None, None)?;
         println!(
             "branch not provided getting latest commit hash for the default branch -> {}",
@@ -613,11 +613,11 @@ pub fn get_snippet_file_name(
 /// Returns Some(filename) if a valid snippet exists, None if we need to create a new one
 pub fn check_existing_snippet(
     new_snippet: &SnippetFile,
-    has_internet: bool,
+    allow_updates: bool,
     snippets_dir: &Path,
 ) -> Result<Option<String>> {
     let Some(existing_snippet) = SnippetFile::find_existing(&new_snippet.prefix) else {
-        if !has_internet {
+        if !allow_updates {
             return Err(Error::new(
                 Span::call_site(),
                 "No matching snippet found and no internet connection available",
@@ -626,7 +626,7 @@ pub fn check_existing_snippet(
         return Ok(None);
     };
 
-    if !has_internet {
+    if !allow_updates {
         println!(
             "✅ Found existing snippet (offline mode): .snippets/{}",
             existing_snippet.full_name
