@@ -113,16 +113,18 @@ pub fn get_remote_commit_sha_without_clone(
     let mut fetch_opts = FetchOptions::new();
     fetch_opts.depth(1); // Only fetch the most recent commit
 
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.transfer_progress(|p| {
-        println!(
-            "Fetching: {}/{} objects",
-            p.received_objects(),
-            p.total_objects()
-        );
-        true
-    });
-    fetch_opts.remote_callbacks(callbacks);
+    println!("fetching ref");
+    // let mut callbacks = RemoteCallbacks::new();
+    // callbacks.transfer_progress(|p| {
+    //     println!(
+    //         "Fetching: {}/{} objects",
+    //         p.received_objects(),
+    //         p.total_objects()
+    //     );
+    //     true
+    // });
+
+    // fetch_opts.remote_callbacks(callbacks);
 
     // First connect to get default branch if needed
     remote.connect(Direction::Fetch).map_err(git_err_to_syn)?;
