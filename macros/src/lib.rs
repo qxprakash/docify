@@ -1260,36 +1260,10 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         let allow_updates =
             !std::env::var("DOCS_RS").is_ok() && !std::env::var("DOCIFY_DISABLE_UPDATES").is_ok();
 
-        println!("env DOCS_RS: {:?}", std::env::var("DOCS_RS"));
-        println!(
-            "env DOCIFY_DISABLE_UPDATES: {:?}",
-            std::env::var("DOCIFY_DISABLE_UPDATES")
-        );
-
-        println!(
-            "\n🌐 Updates {}",
-            if allow_updates {
-                "allowing updates"
-            } else if std::env::var("DOCS_RS").is_ok() {
-                "Offline (docs.rs build)"
-            } else if std::env::var("DOCIFY_DISABLE_UPDATES").is_ok() {
-                "Offline (updates disabled)"
-            } else {
-                "updates disabled"
-            }
-        );
         // Determine git option type and value
 
-        // Replace the existing git option determination code with:
-        let (git_option_type, git_option_value) =
-            get_git_options(&args.commit_hash, &args.tag_name, &args.branch_name);
-
-        // print the git option type and value
-        if let (Some(opt_type), Some(opt_value)) = (&git_option_type, &git_option_value) {
-            println!("Git option type: {}, value: {}", opt_type, opt_value);
-        } else {
-            println!("Using flexible naming without git options");
-        }
+        // git option type and value is determined in get_snippet_file_name
+        // git option type value is calcualted based on , branch / commit / tag and is hashed into 8 characters
 
         // if git option it present the name of the snippet will be of the format
         // [git-url-hash]-[git-option-hash]-[path-hash]-[ident_name]-[full-commit-hash].rs
@@ -1302,25 +1276,15 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         let new_snippet = get_snippet_file_name(git_url.value().as_str(), &args, allow_updates)?;
         // snippet file name is created now check if it already exists
 
-        println!(
-            "created snippet file name based on the passed arguments ----> {}",
-            new_snippet.full_name
-        );
-
-        println!("\n🔍 Now Checking if the snippet file already exists");
-
         // create the snippets directory if it doesn't exist
         let snippets_dir = get_or_create_snippets_dir()?;
 
         let existing_snippet_path =
             check_existing_snippet(&new_snippet, allow_updates, &snippets_dir)?;
 
-        println!("existing_snippet_path: ----> {:?}", existing_snippet_path);
-
         // Use existing snippet if available, otherwise proceed with cloning
 
         if let Some(snippet_name) = existing_snippet_path {
-            println!("using existing snippet path skipping cloning");
             let snippet_path = snippets_dir.join(snippet_name);
             let content = fs::read_to_string(&snippet_path).map_err(|e| {
                 Error::new(
@@ -1335,10 +1299,6 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
 
             let formatted_content = fix_indentation(&content);
             let output = into_example(&formatted_content, lang);
-            println!(
-                "embed_internal_str ----> Final output length: {}",
-                output.len()
-            );
             return Ok(output);
         }
 
@@ -1349,25 +1309,15 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             &new_snippet.commit_hash.as_ref().unwrap(),
         )?;
 
-        println!("✅ Cloned and checked out repo");
-
         let source_path = repo_dir.join(&args.file_path.value());
-        println!("Reading source file from: {}", source_path.display());
 
+        // extract the item from the file
         let extracted_content: String =
             extract_item_from_file(&source_path, &args.item_ident.as_ref().unwrap().to_string())?;
 
-        println!(
-            "extracted_content: from extract_item_from_file using ident ----> {} \n\n extracted content {}",
-            args.item_ident.as_ref().unwrap().to_string(),
-            extracted_content
-        );
-
         let snippet_path = snippets_dir.join(&new_snippet.full_name);
-        println!(
-            "Writing content to snippet file: {}",
-            snippet_path.display()
-        );
+
+        // write the extracted content to the snippet file
         fs::write(&snippet_path, extracted_content.clone()).map_err(|e| {
             Error::new(
                 Span::call_site(),
@@ -1375,23 +1325,12 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             )
         })?;
 
-        println!(
-            "✅ Wrote content to snippet file at path: {}",
-            snippet_path.display()
-        );
-
         let formatted_content = fix_indentation(&extracted_content);
         let output: String = into_example(&formatted_content, lang);
-        println!(
-            "embed_internal_str ----> Final output length: {}",
-            output.len()
-        );
 
         Ok(output)
     } else {
-        println!("Detected local file embedding");
         let file_path = crate_root.join(args.file_path.value());
-        println!("embed_internal_str ----> File path: {:?}", file_path);
 
         let source_code = fs::read_to_string(&file_path).map_err(|e| {
             Error::new(
@@ -1405,10 +1344,8 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         })?;
 
         let source_file = syn::parse_file(&source_code)?;
-        println!("embed_internal_str ----> Parsed source file successfully");
 
         let output = if let Some(ident) = args.item_ident.as_ref() {
-            println!("embed_internal_str ----> Searching for item: {}", ident);
             let mut visitor = ItemVisitor {
                 search: ident.clone(),
                 results: Vec::new(),
@@ -1435,15 +1372,8 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             }
             results.join("\n")
         } else {
-            println!("embed_internal_str ----> No specific item requested, using entire source");
             into_example(source_code.as_str(), lang)
         };
-
-        println!("Successfully embedded local content");
-        println!(
-            "embed_internal_str ----> Final output length: {}",
-            output.len()
-        );
 
         Ok(output)
     }
