@@ -1253,26 +1253,6 @@ fn source_excerpt<'a, T: ToTokens>(
 fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<String> {
     let args: EmbedArgs = parse2::<EmbedArgs>(tokens.into())?;
 
-    // Check if the file_path starts with "../" and git_url is not provided
-    if (args.file_path.value().starts_with("..") || args.file_path.value().starts_with("/"))
-        && args.git_url.is_none()
-    {
-        return Err(Error::new(
-            args.file_path.span(),
-            "You can only embed files which are present in the current crate. For any other files, please provide the git_url to embed."
-        ));
-    }
-
-    // Check if git_url is provided and path starts with ".." or "../"
-    if args.git_url.is_some()
-        && (args.file_path.value().starts_with("..") || args.file_path.value().starts_with("/"))
-    {
-        return Err(Error::new(
-            args.file_path.span(),
-            "When using git_url, please provide the correct file path in your git source. The path should not start with '..' or '../'."
-        ));
-    }
-
     // get the root of the crate
     let crate_root = caller_crate_root()
         .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
