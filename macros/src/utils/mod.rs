@@ -2,22 +2,14 @@ use git2::{Direction, FetchOptions, RemoteCallbacks, Repository};
 use proc_macro2::Span;
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use syn::visit::Visit;
+use syn::Error;
 use syn::Result;
-use syn::{Error, LitStr};
 
 use crate::{caller_crate_root, source_excerpt, ItemVisitor};
 
 pub fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> {
-    println!(
-        "inside extract_item_from_file ----> Extracting item '{}' from '{}'",
-        item_ident,
-        file_path.display()
-    );
-
     let source_code = fs::read_to_string(file_path).map_err(|e| {
         Error::new(
             Span::call_site(),
@@ -29,20 +21,11 @@ pub fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<Stri
         )
     })?;
 
-    println!(
-        "inside extract_item_from_file ----> Source code: {}",
-        source_code
-    );
-
     let mut visitor = ItemVisitor {
         search: syn::parse_str(item_ident)?,
         results: Vec::new(),
     };
     visitor.visit_file(&syn::parse_file(&source_code)?);
-    println!(
-        "inside extract_item_from_file ----> Visitor results: {:?}",
-        visitor.results
-    );
     if visitor.results.is_empty() {
         return Err(Error::new(
             Span::call_site(),
@@ -54,36 +37,11 @@ pub fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<Stri
         ));
     }
 
-    println!("Successfully extracted item from file");
     let (item, style) = visitor.results.first().unwrap();
     source_excerpt(&source_code, item, *style)
 }
 
 /// Checks if there is an active internet connection by attempting to connect to multiple reliable hosts
-pub fn check_internet_connectivity() -> bool {
-    // List of reliable hosts and ports to try
-    let hosts = [
-        ("8.8.8.8", 53),        // Google DNS
-        ("1.1.1.1", 53),        // Cloudflare DNS
-        ("208.67.222.222", 53), // OpenDNS
-    ];
-
-    // Set a timeout for connection attempts
-    let timeout = Duration::from_secs(1);
-
-    for &(host, port) in hosts.iter() {
-        if let Ok(stream) = TcpStream::connect((host, port)) {
-            // Set the timeout for read/write operations
-            if stream.set_read_timeout(Some(timeout)).is_ok()
-                && stream.set_write_timeout(Some(timeout)).is_ok()
-            {
-                return true;
-            }
-        }
-    }
-
-    false
-}
 // comment
 /// Helper function to convert git2::Error to syn::Error
 fn git_err_to_syn(err: git2::Error) -> syn::Error {
@@ -113,19 +71,6 @@ pub fn get_remote_commit_sha_without_clone(
     let mut fetch_opts = FetchOptions::new();
     fetch_opts.depth(1); // Only fetch the most recent commit
 
-    println!("fetching ref");
-    // let mut callbacks = RemoteCallbacks::new();
-    // callbacks.transfer_progress(|p| {
-    //     println!(
-    //         "Fetching: {}/{} objects",
-    //         p.received_objects(),
-    //         p.total_objects()
-    //     );
-    //     true
-    // });
-
-    // fetch_opts.remote_callbacks(callbacks);
-
     // First connect to get default branch if needed
     remote.connect(Direction::Fetch).map_err(git_err_to_syn)?;
 
@@ -153,8 +98,6 @@ pub fn get_remote_commit_sha_without_clone(
         };
         format!("{}:{}", branch_ref, branch_ref)
     };
-
-    println!("Fetching ref: {}", refspec);
 
     // Disconnect before fetch to ensure clean state
     remote.disconnect().map_err(git_err_to_syn)?;
@@ -209,10 +152,6 @@ pub fn get_or_create_commit_dir(git_url: &str, commit_sha: &str) -> Result<PathB
             }
         })
         .unwrap_or("repo");
-    println!(
-        "Repo name inside get_or_create_commit_dir: ------>  {}",
-        repo_name
-    );
 
     // Use first 8 chars of commit hash
     let short_commit = &commit_sha[..8];
@@ -222,10 +161,8 @@ pub fn get_or_create_commit_dir(git_url: &str, commit_sha: &str) -> Result<PathB
     let commit_dir = temp_base.join(dir_name);
 
     if commit_dir.exists() {
-        println!("Found existing repo directory: {}", commit_dir.display());
         Ok(commit_dir)
     } else {
-        println!("Creating new repo directory: {}", commit_dir.display());
         fs::create_dir_all(&commit_dir).map_err(|e| {
             Error::new(
                 Span::call_site(),
@@ -242,25 +179,11 @@ pub fn clone_and_checkout_repo(git_url: &str, commit_sha: &str) -> Result<PathBu
 
     // Check if repo is already cloned and checked out
     if commit_dir.join(".git").exists() {
-        println!(
-            "Using existing repo clone with commit hash -->: {} returning existing dir path ----> {}",
-            commit_sha,
-            commit_dir.display()
-        );
         return Ok(commit_dir);
     }
 
-    println!("Cloning new repo for commit: {}", commit_sha);
-
     let mut callbacks = RemoteCallbacks::new();
-    callbacks.transfer_progress(|p| {
-        println!(
-            "Fetching: {}/{} objects",
-            p.received_objects(),
-            p.total_objects()
-        );
-        true
-    });
+    callbacks.transfer_progress(|_p| true);
 
     let mut fetch_opts = FetchOptions::new();
     fetch_opts.remote_callbacks(callbacks);
@@ -304,10 +227,6 @@ impl SnippetFile {
         path: &str,
         item_ident: &str,
     ) -> Self {
-        println!("\n📝 Creating new SnippetFile...");
-        println!("ℹ️  Input path: {}", path);
-        println!("ℹ️  Item identifier: {}", item_ident);
-
         let prefix = format!(
             "{}-{}-{}-{}",
             hash_git_url(git_url),
@@ -315,8 +234,6 @@ impl SnippetFile {
             hash_string(path),
             item_ident,
         );
-        println!("ℹ️  Generated prefix: {}", prefix);
-
         Self {
             prefix: prefix.clone(),
             commit_hash: None,
@@ -332,10 +249,6 @@ impl SnippetFile {
         commit_sha: &str,
         item_ident: &str,
     ) -> Self {
-        println!("\n📝 Creating new SnippetFile...");
-        println!("ℹ️  Input path: {}", path);
-        println!("ℹ️  Item identifier: {}", item_ident);
-
         let prefix = format!(
             "{}-{}-{}-{}",
             hash_git_url(git_url),
@@ -343,11 +256,8 @@ impl SnippetFile {
             hash_string(path),
             item_ident,
         );
-        println!("ℹ️  Generated prefix: {}", prefix);
 
         let full_name = format!("{}-{}.rs", prefix, commit_sha);
-        println!("✅ Created snippet filename: {}", full_name);
-
         Self {
             prefix,
             commit_hash: Some(commit_sha.to_string()),
@@ -356,49 +266,33 @@ impl SnippetFile {
     }
 
     pub fn find_existing(prefix: &str) -> Option<Self> {
-        println!("\n🔍 Looking for existing snippet with prefix: {}", prefix);
-
         // Get the crate root path
         let crate_root = match crate::caller_crate_root() {
             Some(root) => root,
             None => {
-                println!("❌ Failed to resolve crate root");
                 return None;
             }
         };
 
         // Use absolute path by joining with crate root
         let snippets_dir = crate_root.join(".snippets");
-        println!("📁 Checking snippets directory: {}", snippets_dir.display());
 
         // Check if directory exists and is actually a directory
         if !snippets_dir.exists() {
-            println!(
-                "❌ .snippets directory does not exist at {}",
-                snippets_dir.display()
-            );
             return None;
         }
 
         fs::read_dir(snippets_dir).ok()?.find_map(|entry| {
             let entry = entry.ok()?;
-            println!("entry: {:?}", entry);
             let file_name = entry.file_name().to_string_lossy().to_string();
 
-            println!("ℹ️  Checking file: {}", file_name);
-
             if file_name.starts_with(prefix) {
-                println!("✅ Found matching file!");
                 // Extract commit hash from filename if it exists
                 let commit_hash = file_name
                     .strip_suffix(".rs")?
                     .rsplit('-')
                     .next()
                     .map(|s| s.to_string());
-                println!(
-                    "ℹ️  Extracted commit hash from existing file: {:?}",
-                    commit_hash
-                );
 
                 Some(Self {
                     prefix: prefix.to_string(),
@@ -418,28 +312,21 @@ impl SnippetFile {
         item_ident: &str,
         commit_sha: Option<&str>,
     ) -> Self {
-        println!("\n📝 Creating new SnippetFile for default branch case");
-        println!("ℹ️  Input path: {}", path);
-        println!("ℹ️  Item identifier: {}", item_ident);
-
         let prefix = format!(
             "{}-{}-{}",
             hash_git_url(git_url),
             hash_string(path),
             item_ident,
         );
-        println!("ℹ️  Generated prefix: {}", prefix);
 
         if let Some(commit) = commit_sha {
             let full_name = format!("{}-{}.rs", prefix, commit);
-            println!("✅ Created snippet filename with commit: {}", full_name);
             Self {
                 prefix,
                 commit_hash: Some(commit.to_string()),
                 full_name,
             }
         } else {
-            println!("✅ Created snippet filename without commit");
             Self {
                 prefix: prefix.clone(),
                 commit_hash: None,
@@ -465,7 +352,6 @@ fn normalize_git_url(url: &str) -> &str {
 }
 
 fn hash_git_url(url: &str) -> String {
-    println!("ℹ️  Hashing git URL: {}", url);
     let normalized_url = normalize_git_url(url);
     hash_string(normalized_url)
 }
@@ -476,11 +362,6 @@ pub fn get_or_create_snippets_dir() -> Result<PathBuf> {
         .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
 
     let snippets_dir = crate_root.join(".snippets");
-    println!(
-        "📁 Ensuring snippets directory exists at: {}",
-        snippets_dir.display()
-    );
-
     fs::create_dir_all(&snippets_dir).map_err(|e| {
         Error::new(
             Span::call_site(),
@@ -491,28 +372,6 @@ pub fn get_or_create_snippets_dir() -> Result<PathBuf> {
     Ok(snippets_dir)
 }
 
-/// Determines the git option type and value based on the provided arguments
-pub fn get_git_options(
-    commit_hash: &Option<LitStr>,
-    tag_name: &Option<LitStr>,
-    branch_name: &Option<LitStr>,
-) -> (Option<String>, Option<String>) {
-    if let Some(hash) = commit_hash {
-        println!("Using commit hash: {}", hash.value());
-        (Some("commit".to_string()), Some(hash.value()))
-    } else if let Some(tag) = tag_name {
-        println!("Using tag: {}", tag.value());
-        (Some("tag".to_string()), Some(tag.value()))
-    } else if let Some(branch) = branch_name {
-        println!("Using provided branch: {}", branch.value());
-        (Some("branch".to_string()), Some(branch.value()))
-    } else {
-        // No specific git option provided - default branch case
-        println!("No specific git option provided, using flexible naming");
-        (None, None)
-    }
-}
-
 /// Creates a new snippet file based on git options and internet connectivity
 pub fn get_snippet_file_name(
     git_url: &str,
@@ -521,7 +380,6 @@ pub fn get_snippet_file_name(
 ) -> Result<SnippetFile> {
     if let Some(hash) = &args.commit_hash {
         // If commit hash is provided, use it regardless of internet connectivity
-        println!("Using provided commit hash: {}", hash.value());
         return Ok(SnippetFile::new_with_commit(
             git_url,
             "commit",
@@ -536,7 +394,6 @@ pub fn get_snippet_file_name(
         return if allow_updates {
             let commit_sha =
                 get_remote_commit_sha_without_clone(git_url, None, Some(tag.value().as_str()))?;
-            println!("commit hash for tag: {} -> {}", tag.value(), commit_sha);
             Ok(SnippetFile::new_with_commit(
                 git_url,
                 "tag",
@@ -546,7 +403,6 @@ pub fn get_snippet_file_name(
                 &args.item_ident.as_ref().unwrap().to_string(),
             ))
         } else {
-            println!("📡 Offline mode: Creating snippet without commit hash for tag");
             Ok(SnippetFile::new_without_commit(
                 git_url,
                 "tag",
@@ -561,11 +417,6 @@ pub fn get_snippet_file_name(
         return if allow_updates {
             let commit_sha =
                 get_remote_commit_sha_without_clone(git_url, Some(branch.value().as_str()), None)?;
-            println!(
-                "commit hash for branch: {} -> {}",
-                branch.value(),
-                commit_sha
-            );
             Ok(SnippetFile::new_with_commit(
                 git_url,
                 "branch",
@@ -575,7 +426,6 @@ pub fn get_snippet_file_name(
                 &args.item_ident.as_ref().unwrap().to_string(),
             ))
         } else {
-            println!("📡 Offline mode: Creating snippet without commit hash for branch");
             Ok(SnippetFile::new_without_commit(
                 git_url,
                 "branch",
@@ -589,10 +439,6 @@ pub fn get_snippet_file_name(
     // Default branch case - more flexible naming
     if allow_updates {
         let commit_sha = get_remote_commit_sha_without_clone(git_url, None, None)?;
-        println!(
-            "branch not provided getting latest commit hash for the default branch -> {}",
-            commit_sha
-        );
         Ok(SnippetFile::new_for_default_branch(
             git_url,
             &args.file_path.value(),
@@ -627,10 +473,6 @@ pub fn check_existing_snippet(
     };
 
     if !allow_updates {
-        println!(
-            "✅ Found existing snippet (offline mode): .snippets/{}",
-            existing_snippet.full_name
-        );
         return Ok(Some(existing_snippet.full_name));
     }
 
@@ -639,17 +481,8 @@ pub fn check_existing_snippet(
         (&existing_snippet.commit_hash, &new_snippet.commit_hash)
     {
         if existing_hash == new_hash {
-            println!(
-                "✅ Existing snippet is up to date at: .snippets/{}",
-                existing_snippet.full_name
-            );
             return Ok(Some(existing_snippet.full_name));
         }
-
-        println!("ℹ️  Found existing snippet with different commit hash:");
-        println!("   Current: {}", existing_hash);
-        println!("   New: {}", new_hash);
-        println!("🔄 Removing outdated snippet...");
 
         // Remove old snippet file
         fs::remove_file(snippets_dir.join(&existing_snippet.full_name)).map_err(|e| {
