@@ -607,6 +607,7 @@ impl EmbedArgs {
         self.validate_file_path()?;
         self.validate_git_refs()?;
         self.validate_git_dependencies()?;
+        self.validate_git_url()?;
         Ok(())
     }
 
@@ -620,6 +621,20 @@ impl EmbedArgs {
                 self.file_path.span(),
                 "File path cannot be a URL. Use git: \"url\" for git repositories",
             ));
+        }
+        Ok(())
+    }
+
+    /// Ensures git URL is valid if provided
+    fn validate_git_url(&self) -> Result<()> {
+        if let Some(git_url) = &self.git_url {
+            let url = git_url.value();
+            if !url.starts_with("https://") {
+                return Err(Error::new(
+                    git_url.span(),
+                    "Please provide a valid Git URL starting with 'https://'",
+                ));
+            }
         }
         Ok(())
     }
