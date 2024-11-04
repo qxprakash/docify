@@ -613,15 +613,26 @@ impl EmbedArgs {
 
     /// Ensures file path is valid based on context
     fn validate_file_path(&self) -> Result<()> {
-        if self.git_url.is_none()
-            && (self.file_path.value().starts_with("http://")
-                || self.file_path.value().starts_with("https://"))
-        {
+        let path = self.file_path.value();
+
+        // Check for URLs in file path when git_url is not provided
+        if self.git_url.is_none() && (path.starts_with("http://") || path.starts_with("https://")) {
             return Err(Error::new(
                 self.file_path.span(),
                 "File path cannot be a URL. Use git: \"url\" for git repositories",
             ));
         }
+
+        // Check for paths starting with ".." or "/"
+        if path.starts_with("..") || path.starts_with("/") {
+            let error_msg = if self.git_url.is_some() {
+                "When using git_url, please provide the correct file path in your git source. The path should not start with '..' or '/'."
+            } else {
+                "You can only embed files which are present in the current crate. For any other files, please provide the git_url to embed."
+            };
+            return Err(Error::new(self.file_path.span(), error_msg));
+        }
+
         Ok(())
     }
 
@@ -1246,12 +1257,6 @@ fn source_excerpt<'a, T: ToTokens>(
 
 fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<String> {
     let args: EmbedArgs = parse2::<EmbedArgs>(tokens.into())?;
-    println!(
-        "embed_internal_str ----> args: git_url: {:?}, file_path: {}, item_ident: {:?}",
-        args.git_url.as_ref().map(|url| url.value()),
-        args.file_path.value(),
-        args.item_ident.as_ref().map(|i| i.to_string())
-    );
 
     // Check if the file_path starts with "../" and git_url is not provided
     if (args.file_path.value().starts_with("..") || args.file_path.value().starts_with("/"))
