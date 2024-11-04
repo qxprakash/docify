@@ -269,36 +269,62 @@ fn test_embed_args_with_item() {
     .unwrap();
     assert_eq!(args.item_ident.unwrap().to_string(), "my_function");
 }
-
 #[test]
 fn test_embed_args_invalid() {
     // Test empty path
     assert!(parse2::<EmbedArgs>(quote!("")).is_err());
 
     // Test multiple git refs (should fail)
-    assert!(parse2::<EmbedArgs>(quote!(
-        git: "https://github.com/user/repo",
-        path: "src/lib.rs",
-        branch: "main",
-        tag: "v1.0.0"
-    ))
-    .is_err());
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "https://github.com/user/repo",
+            path: "src/lib.rs",
+            branch: "main",
+            tag: "v1.0.0"
+        ))
+        .is_err(),
+        "Should fail when multiple git refs are provided"
+    );
 
     // Test git refs without git URL (should fail)
-    assert!(parse2::<EmbedArgs>(quote!(
-        path: "src/lib.rs",
-        branch: "main"
-    ))
-    .is_err());
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            path: "src/lib.rs",
+            branch: "main"
+        ))
+        .is_err(),
+        "Should fail when git refs are provided without git URL"
+    );
 
-    // Test invalid path with git URL
-    assert!(parse2::<EmbedArgs>(quote!(
-        git: "https://github.com/user/repo",
-        path: "../src/lib.rs"
-    ))
-    .is_err());
+    // Test missing path with git URL (should fail)
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "https://github.com/user/repo"
+        ))
+        .is_err(),
+        "Should fail when path is missing"
+    );
+
+    // Test invalid URL format
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "not a valid url",
+            path: "src/lib.rs"
+        ))
+        .is_err(),
+        "Should fail with invalid git URL format"
+    );
+
+    // Test empty git URL
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "",
+            path: "src/lib.rs"
+        ))
+        .is_err(),
+        "Should fail with empty git URL"
+    );
 }
-
 #[test]
 fn test_embed_args_complex() {
     // Test full featured usage
