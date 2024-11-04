@@ -728,22 +728,17 @@ impl NamedArgsBuilder {
     fn set_arg(&mut self, input: ParseStream) -> Result<()> {
         let lookahead = input.lookahead1();
 
-        if lookahead.peek(kw::git) {
-            self.parse_git_url(input)?;
-        } else if lookahead.peek(kw::path) {
-            self.parse_file_path(input)?;
-        } else if lookahead.peek(kw::branch) {
-            self.parse_branch(input)?;
-        } else if lookahead.peek(kw::commit) {
-            self.parse_commit(input)?;
-        } else if lookahead.peek(kw::tag) {
-            self.parse_tag(input)?;
-        } else if lookahead.peek(kw::item) {
-            self.parse_item(input)?;
-        } else {
-            return Err(lookahead.error());
-        }
+        match () {
+            _ if lookahead.peek(kw::git) => self.parse_git_url(input),
+            _ if lookahead.peek(kw::path) => self.parse_file_path(input),
+            _ if lookahead.peek(kw::branch) => self.parse_branch(input),
+            _ if lookahead.peek(kw::commit) => self.parse_commit(input),
+            _ if lookahead.peek(kw::tag) => self.parse_tag(input),
+            _ if lookahead.peek(kw::item) => self.parse_item(input),
+            _ => return Err(lookahead.error()),
+        }?;
 
+        // Handle trailing comma if more input exists
         if !input.is_empty() {
             input.parse::<Token![,]>()?;
         }
