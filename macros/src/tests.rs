@@ -1,4 +1,8 @@
 use super::*;
+use proc_macro2::TokenStream as TokenStream2;
+use std::fs;
+use std::path::PathBuf;
+use tempfile::TempDir;
 
 #[test]
 fn test_export_basic_parsing_valid() {
@@ -192,4 +196,151 @@ fn bar() {
 }
 "#;
     assert_eq!(fix_leading_indentation(input), output);
+}
+
+#[test]
+fn test_embed_args_basic() {
+    // Test basic file path only
+    let args = parse2::<EmbedArgs>(quote!("src/lib.rs")).unwrap();
+    assert!(args.git_url.is_none());
+    assert_eq!(args.file_path.value(), "src/lib.rs");
+    assert!(args.item_ident.is_none());
+    assert!(args.branch_name.is_none());
+    assert!(args.commit_hash.is_none());
+    assert!(args.tag_name.is_none());
+
+    // Test file path with item
+    let args = parse2::<EmbedArgs>(quote!("src/lib.rs", my_function)).unwrap();
+    assert!(args.git_url.is_none());
+    assert_eq!(args.file_path.value(), "src/lib.rs");
+    assert_eq!(args.item_ident.unwrap().to_string(), "my_function");
+}
+
+#[test]
+fn test_embed_args_git() {
+    // Test with git URL
+    let args = parse2::<EmbedArgs>(quote!(git: "https://github.com/user/repo", path: "src/lib.rs"))
+        .unwrap();
+    assert_eq!(
+        args.git_url.unwrap().value(),
+        "https://github.com/user/repo"
+    );
+    assert_eq!(args.file_path.value(), "src/lib.rs");
+
+    // Test with git URL and branch
+    let args = parse2::<EmbedArgs>(quote!(
+        git: "https://github.com/user/repo",
+        path: "src/lib.rs",
+        branch: "main"
+    ))
+    .unwrap();
+    assert_eq!(args.branch_name.unwrap().value(), "main");
+}
+
+#[test]
+fn test_embed_args_git_refs() {
+    // Test with commit hash
+    let args = parse2::<EmbedArgs>(quote!(
+        git: "https://github.com/user/repo",
+        path: "src/lib.rs",
+        commit: "abc123"
+    ))
+    .unwrap();
+    assert_eq!(args.commit_hash.unwrap().value(), "abc123");
+
+    // Test with tag
+    let args = parse2::<EmbedArgs>(quote!(
+        git: "https://github.com/user/repo",
+        path: "src/lib.rs",
+        tag: "v1.0.0"
+    ))
+    .unwrap();
+    assert_eq!(args.tag_name.unwrap().value(), "v1.0.0");
+}
+
+#[test]
+fn test_embed_args_with_item() {
+    // Test git URL with item
+    let args = parse2::<EmbedArgs>(quote!(
+        git: "https://github.com/user/repo",
+        path: "src/lib.rs",
+        item: my_function
+    ))
+    .unwrap();
+    assert_eq!(args.item_ident.unwrap().to_string(), "my_function");
+}
+#[test]
+fn test_embed_args_invalid() {
+    // Test empty path
+    assert!(parse2::<EmbedArgs>(quote!("")).is_err());
+
+    // Test multiple git refs (should fail)
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "https://github.com/user/repo",
+            path: "src/lib.rs",
+            branch: "main",
+            tag: "v1.0.0"
+        ))
+        .is_err(),
+        "Should fail when multiple git refs are provided"
+    );
+
+    // Test git refs without git URL (should fail)
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            path: "src/lib.rs",
+            branch: "main"
+        ))
+        .is_err(),
+        "Should fail when git refs are provided without git URL"
+    );
+
+    // Test missing path with git URL (should fail)
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "https://github.com/user/repo"
+        ))
+        .is_err(),
+        "Should fail when path is missing"
+    );
+
+    // Test invalid URL format
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "not a valid url",
+            path: "src/lib.rs"
+        ))
+        .is_err(),
+        "Should fail with invalid git URL format"
+    );
+
+    // Test empty git URL
+    assert!(
+        parse2::<EmbedArgs>(quote!(
+            git: "",
+            path: "src/lib.rs"
+        ))
+        .is_err(),
+        "Should fail with empty git URL"
+    );
+}
+#[test]
+fn test_embed_args_complex() {
+    // Test full featured usage
+    let args = parse2::<EmbedArgs>(quote!(
+        git: "https://github.com/user/repo",
+        path: "src/lib.rs",
+        branch: "feature/new",
+        item: test_function
+    ))
+    .unwrap();
+
+    assert_eq!(
+        args.git_url.unwrap().value(),
+        "https://github.com/user/repo"
+    );
+    assert_eq!(args.file_path.value(), "src/lib.rs");
+    assert_eq!(args.branch_name.unwrap().value(), "feature/new");
+    assert_eq!(args.item_ident.unwrap().to_string(), "test_function");
 }

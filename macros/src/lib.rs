@@ -1,5 +1,4 @@
-//! This crate contains the proc macros used by [docify](https://crates.io/crates/docify).
-
+mod utils;
 use common_path::common_path;
 use derive_syn_parse::Parse;
 use once_cell::sync::Lazy;
@@ -7,25 +6,29 @@ use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::{quote, ToTokens};
 use regex::Regex;
+
 use std::{
     cmp::min,
     collections::HashMap,
+    fmt::Display,
     fmt::Display,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
     str::FromStr,
 };
+use syn::parse::Parse;
+use syn::parse::ParseStream;
 use syn::{
     parse2,
     spanned::Spanned,
     token::Paren,
     visit::{self, Visit},
-    AttrStyle, Attribute, Error, File, Ident, ImplItem, Item, LitStr, Meta, Result, Token,
-    TraitItem,
+    AttrStyle, Attribute, Error, Ident, ImplItem, Item, LitStr, Meta, Result, Token, TraitItem,
 };
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use toml::{Table, Value};
+use utils::*;
 use walkdir::WalkDir;
 
 fn line_start_position<S: AsRef<str>>(source: S, pos: usize) -> usize {
@@ -465,7 +468,7 @@ fn export_internal(
 ///
 /// Which will expand to the `my_example` item in `path/to/file.rs` being embedded in a rust
 /// doc example marked with `ignore`. If you want to have your example actually run in rust
-/// docs as well, you should use [`docify::embed_run!(..)`](`macro@embed_run`).
+/// docs as well, you should use [`docify::embed_run!(..)`](`macro@embed_run`) instead.
 ///
 /// ### Arguments
 /// - `source_path`: the file path (relative to the current crate root) that contains the item
@@ -498,7 +501,6 @@ fn export_internal(
 /// ```ignore
 /// /// Here is a cool example module:
 /// #[doc = docify::embed!("examples/my_example.rs")]
-/// struct DocumentedItem
 /// ```
 ///
 /// You are also free to embed multiple examples in the same set of doc comments:
@@ -516,12 +518,16 @@ fn export_internal(
 /// and so they do not need to be run as well in the context where they are being embedded. If
 /// for whatever reason you _do_ want to also run an embedded example as a doc example, you can
 /// use [`docify::embed_run!(..)`](`macro@embed_run`) which removes the `ignore` tag from the
-/// generated example but otherwise functions exactly like `#[docify::embed!(..)]` in every
+/// generated example but otherwise functions exactly like `#[docify::embed!(..)` in every
 /// way.
 ///
 /// Output should match `rustfmt` output exactly.
 #[proc_macro]
 pub fn embed(tokens: TokenStream) -> TokenStream {
+    match embed_internal(
+        tokens,
+        vec![MarkdownLanguage::Rust, MarkdownLanguage::Ignore],
+    ) {
     match embed_internal(
         tokens,
         vec![MarkdownLanguage::Rust, MarkdownLanguage::Ignore],
@@ -545,22 +551,331 @@ pub fn embed_run(tokens: TokenStream) -> TokenStream {
 }
 
 /// Used to parse args for `docify::embed!(..)`
-#[derive(Parse)]
+/// Used to parse args for `docify::embed!(..)`
+/// Used to parse args for `docify::embed!(..)`
+
+mod kw {
+    syn::custom_keyword!(git);
+    syn::custom_keyword!(path);
+    syn::custom_keyword!(branch);
+    syn::custom_keyword!(commit);
+    syn::custom_keyword!(tag);
+    syn::custom_keyword!(item);
+}
+
 struct EmbedArgs {
+    git_url: Option<LitStr>,
     file_path: LitStr,
-    #[prefix(Option<Token![,]> as comma)]
-    #[parse_if(comma.is_some())]
+    branch_name: Option<LitStr>,
+    commit_hash: Option<LitStr>,
+    tag_name: Option<LitStr>,
     item_ident: Option<Ident>,
+}
+
+// implementing Debug for EmbedArgs for easier debugging
+impl std::fmt::Debug for EmbedArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbedArgs")
+            .field("git_url", &self.git_url.as_ref().map(|s| s.value()))
+            .field("file_path", &self.file_path.value())
+            .field("branch_name", &self.branch_name.as_ref().map(|s| s.value()))
+            .field("commit_hash", &self.commit_hash.as_ref().map(|s| s.value()))
+            .field("tag_name", &self.tag_name.as_ref().map(|s| s.value()))
+            .field(
+                "item_ident",
+                &self.item_ident.as_ref().map(|i| i.to_string()),
+            )
+            .finish()
+    }
+}
+
+impl EmbedArgs {
+    /// Creates a new EmbedArgs instance with validation
+    fn new(
+        git_url: Option<LitStr>,
+        file_path: LitStr,
+        branch_name: Option<LitStr>,
+        commit_hash: Option<LitStr>,
+        tag_name: Option<LitStr>,
+        item_ident: Option<Ident>,
+    ) -> Result<Self> {
+        let args = Self {
+            git_url,
+            file_path,
+            branch_name,
+            commit_hash,
+            tag_name,
+            item_ident,
+        };
+        args.validate()?;
+        Ok(args)
+    }
+
+    /// Validates all argument constraints
+    fn validate(&self) -> Result<()> {
+        self.validate_file_path()?;
+        self.validate_git_refs()?;
+        self.validate_git_dependencies()?;
+        self.validate_git_url()?;
+        Ok(())
+    }
+
+    /// Ensures file path is valid based on context
+    fn validate_file_path(&self) -> Result<()> {
+        let path = self.file_path.value();
+
+        // Check for URLs in file path when git_url is not provided
+        if self.git_url.is_none() && (path.starts_with("http://") || path.starts_with("https://")) {
+            return Err(Error::new(
+                self.file_path.span(),
+                "File path cannot be a URL. Use git: \"url\" for git repositories",
+            ));
+        }
+
+        // Check for paths starting with ".." or "/"
+        if path.starts_with("..") || path.starts_with("/") {
+            let error_msg = if self.git_url.is_some() {
+                "When using git_url, please provide the correct file path in your git source. The path should not start with '..' or '/'."
+            } else {
+                "You can only embed files which are present in the current crate. For any other files, please provide the git_url to embed."
+            };
+            return Err(Error::new(self.file_path.span(), error_msg));
+        }
+
+        Ok(())
+    }
+
+    /// Ensures git URL is valid if provided
+    fn validate_git_url(&self) -> Result<()> {
+        if let Some(git_url) = &self.git_url {
+            let url = git_url.value();
+            if !url.starts_with("https://") {
+                return Err(Error::new(
+                    git_url.span(),
+                    "Please provide a valid Git URL starting with 'https://'",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Ensures only one git reference type is specified
+    fn validate_git_refs(&self) -> Result<()> {
+        let ref_count = [&self.branch_name, &self.commit_hash, &self.tag_name]
+            .iter()
+            .filter(|&&x| x.is_some())
+            .count();
+
+        if ref_count > 1 {
+            return Err(Error::new(
+                Span::call_site(),
+                "Only one of branch, commit, or tag can be specified",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Ensures git-specific arguments are only used with git URLs
+    fn validate_git_dependencies(&self) -> Result<()> {
+        if self.git_url.is_none()
+            && (self.branch_name.is_some() || self.commit_hash.is_some() || self.tag_name.is_some())
+        {
+            return Err(Error::new(
+                Span::call_site(),
+                "branch, commit, or tag can only be used with git parameter",
+            ));
+        }
+        Ok(())
+    }
+    /// Parses positional arguments format
+    fn parse_positional(input: ParseStream) -> Result<Self> {
+        let file_path: LitStr = input.parse()?;
+
+        // Check for empty file path
+        if file_path.value().trim().is_empty() {
+            return Err(Error::new(file_path.span(), "File path cannot be empty"));
+        }
+
+        let item_ident = if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
+
+        Self::new(None, file_path, None, None, None, item_ident)
+    }
+
+    /// Parses named arguments format
+    fn parse_named(input: ParseStream) -> Result<Self> {
+        let mut builder = NamedArgsBuilder::new();
+
+        while !input.is_empty() {
+            builder.set_arg(input)?;
+        }
+
+        builder.build()
+    }
+}
+
+/// Builder for collecting named arguments during parsing
+#[derive(Default)]
+struct NamedArgsBuilder {
+    git_url: Option<LitStr>,
+    file_path: Option<LitStr>,
+    branch_name: Option<LitStr>,
+    commit_hash: Option<LitStr>,
+    tag_name: Option<LitStr>,
+    item_ident: Option<Ident>,
+}
+
+impl NamedArgsBuilder {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn set_arg(&mut self, input: ParseStream) -> Result<()> {
+        let lookahead = input.lookahead1();
+
+        match () {
+            _ if lookahead.peek(kw::git) => self.parse_git_url(input),
+            _ if lookahead.peek(kw::path) => self.parse_file_path(input),
+            _ if lookahead.peek(kw::branch) => self.parse_branch(input),
+            _ if lookahead.peek(kw::commit) => self.parse_commit(input),
+            _ if lookahead.peek(kw::tag) => self.parse_tag(input),
+            _ if lookahead.peek(kw::item) => self.parse_item(input),
+            _ => return Err(lookahead.error()),
+        }?;
+
+        // Handle trailing comma if more input exists
+        if !input.is_empty() {
+            input.parse::<Token![,]>()?;
+        }
+        Ok(())
+    }
+
+    fn parse_git_url(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::git = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.git_url = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_file_path(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::path = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.file_path = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_branch(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::branch = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.branch_name = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_commit(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::commit = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.commit_hash = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_tag(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::tag = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.tag_name = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn parse_item(&mut self, input: ParseStream) -> Result<()> {
+        let _: kw::item = input.parse()?;
+        let _: Token![:] = input.parse()?;
+        self.item_ident = Some(input.parse()?);
+        Ok(())
+    }
+
+    fn build(self) -> Result<EmbedArgs> {
+        let file_path = self
+            .file_path
+            .ok_or_else(|| Error::new(Span::call_site(), "path parameter is required"))?;
+
+        EmbedArgs::new(
+            self.git_url,
+            file_path,
+            self.branch_name,
+            self.commit_hash,
+            self.tag_name,
+            self.item_ident,
+        )
+    }
+}
+
+impl Parse for EmbedArgs {
+    fn parse(input: ParseStream) -> Result<Self> {
+        if !input.peek(kw::git) && !input.peek(kw::path) {
+            return Self::parse_positional(input);
+        }
+        Self::parse_named(input)
+    }
 }
 
 impl ToTokens for EmbedArgs {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
-        tokens.extend(self.file_path.to_token_stream());
-        let Some(item_ident) = &self.item_ident else {
+        // For positional arguments style
+        if self.git_url.is_none() && !self.has_named_args() {
+            self.file_path.to_tokens(tokens);
+            if let Some(ref item) = self.item_ident {
+                Token![,](Span::call_site()).to_tokens(tokens);
+                item.to_tokens(tokens);
+            }
             return;
-        };
-        tokens.extend(quote!(,));
-        tokens.extend(item_ident.to_token_stream());
+        }
+
+        // For named arguments style
+        let mut args = TokenStream2::new();
+
+        if let Some(ref git) = self.git_url {
+            quote!(git: #git,).to_tokens(&mut args);
+        }
+
+        quote!(path: #self.file_path,).to_tokens(&mut args);
+
+        if let Some(ref branch) = self.branch_name {
+            quote!(branch: #branch,).to_tokens(&mut args);
+        }
+
+        if let Some(ref commit) = self.commit_hash {
+            quote!(commit: #commit,).to_tokens(&mut args);
+        }
+
+        if let Some(ref tag) = self.tag_name {
+            quote!(tag: #tag,).to_tokens(&mut args);
+        }
+
+        if let Some(ref item) = self.item_ident {
+            quote!(item: #item,).to_tokens(&mut args);
+        }
+
+        tokens.extend(args);
+    }
+}
+
+// Add this helper method to EmbedArgs impl
+impl EmbedArgs {
+    fn has_named_args(&self) -> bool {
+        self.branch_name.is_some()
+            || self.commit_hash.is_some()
+            || self.tag_name.is_some()
+            || self.git_url.is_some()
+    }
+
+    // Add this method to convert to TokenStream2
+    pub fn to_token_stream(&self) -> TokenStream2 {
+        let mut tokens = TokenStream2::new();
+        self.to_tokens(&mut tokens);
+        tokens
     }
 }
 
@@ -710,7 +1025,7 @@ impl<'ast> SupportedVisitItem<'ast> for ItemVisitor {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum ResultStyle {
     Export,
     ExportContent,
@@ -963,62 +1278,137 @@ fn source_excerpt<'a, T: ToTokens>(
         .join("\n"))
 }
 
-/// Inner version of [`embed_internal`] that just returns the result as a [`String`].
 fn embed_internal_str(
     tokens: impl Into<TokenStream2>,
     langs: Vec<MarkdownLanguage>,
 ) -> Result<String> {
-    let args = parse2::<EmbedArgs>(tokens.into())?;
-    // return blank result if we can't properly resolve `caller_crate_root`
-    let Some(root) = caller_crate_root() else {
-        return Ok(String::from(""));
-    };
-    let file_path = root.join(args.file_path.value());
-    let source_code = match fs::read_to_string(&file_path) {
-        Ok(src) => src,
-        Err(_) => {
-            return Err(Error::new(
+    let args: EmbedArgs = parse2::<EmbedArgs>(tokens.into())?;
+
+    // get the root of the crate
+    let crate_root = caller_crate_root()
+        .ok_or_else(|| Error::new(Span::call_site(), "Failed to resolve caller crate root"))?;
+    if let Some(git_url) = &args.git_url {
+        let allow_updates =
+            !std::env::var("DOCS_RS").is_ok() && !std::env::var("DOCIFY_DISABLE_UPDATES").is_ok();
+
+        // Determine git option type and value
+
+        // git option type and value is determined in get_snippet_file_name
+        // git option type value is calcualted based on , branch / commit / tag and is hashed into 8 characters
+
+        // if git option it present the name of the snippet will be of the format
+        // [git-url-hash]-[git-option-hash]-[path-hash]-[ident_name]-[full-commit-hash].rs
+
+        // if no git option is present the name of the snippet will be of the format
+        // this will be applicable only when none of branch / commit / tag is provided
+        // [git-url-hash]-[path-hash]-[ident_name]-[full-commit-hash].rs
+
+        // first create the snippet file name based on the passed arguments
+        let new_snippet = get_snippet_file_name(git_url.value().as_str(), &args, allow_updates)?;
+        // snippet file name is created now check if it already exists
+
+        // create the snippets directory if it doesn't exist
+        let snippets_dir = get_or_create_snippets_dir()?;
+
+        let existing_snippet_path =
+            check_existing_snippet(&new_snippet, allow_updates, &snippets_dir)?;
+
+        // Use existing snippet if available, otherwise proceed with cloning
+
+        if let Some(snippet_name) = existing_snippet_path {
+            let snippet_path = snippets_dir.join(snippet_name);
+            let content = fs::read_to_string(&snippet_path).map_err(|e| {
+                Error::new(
+                    args.file_path.span(),
+                    format!(
+                        "Failed to read snippet file: {} at path: {}",
+                        e,
+                        snippet_path.display()
+                    ),
+                )
+            })?;
+
+            let formatted_content = fix_indentation(&content);
+            let output = into_example(&formatted_content, lang);
+            return Ok(output);
+        }
+
+        // returns the directory of the cloned repo with caching
+
+        let repo_dir = clone_and_checkout_repo(
+            git_url.value().as_str(),
+            &new_snippet.commit_hash.as_ref().unwrap(),
+        )?;
+
+        let source_path = repo_dir.join(&args.file_path.value());
+
+        // extract the item from the file
+        let extracted_content: String =
+            extract_item_from_file(&source_path, &args.item_ident.as_ref().unwrap().to_string())?;
+
+        let snippet_path = snippets_dir.join(&new_snippet.full_name);
+
+        // write the extracted content to the snippet file
+        fs::write(&snippet_path, extracted_content.clone()).map_err(|e| {
+            Error::new(
+                Span::call_site(),
+                format!("Failed to write snippet file: {}", e),
+            )
+        })?;
+
+        let formatted_content = fix_indentation(&extracted_content);
+        let output: String = into_example(&formatted_content, &langs);
+
+        Ok(output)
+    } else {
+        let file_path = crate_root.join(args.file_path.value());
+
+        let source_code = fs::read_to_string(&file_path).map_err(|e| {
+            Error::new(
                 args.file_path.span(),
                 format!(
-                    "Could not read the specified path '{}'.",
+                    "Could not read the specified path '{}': {}",
                     file_path.display(),
+                    e
                 ),
-            ))
-        }
-    };
-    let parsed = source_code.parse::<TokenStream2>()?;
-    let source_file = parse2::<File>(parsed)?;
+            )
+        })?;
 
-    let output = if let Some(ident) = args.item_ident {
-        let mut visitor = ItemVisitor {
-            search: ident.clone(),
-            results: Vec::new(),
+        let source_file = syn::parse_file(&source_code)?;
+
+        let output = if let Some(ident) = args.item_ident.as_ref() {
+            let mut visitor = ItemVisitor {
+                search: ident.clone(),
+                results: Vec::new(),
+            };
+            visitor.visit_file(&source_file);
+
+            if visitor.results.is_empty() {
+                return Err(Error::new(
+                    ident.span(),
+                    format!(
+                        "Could not find docify export item '{}' in '{}'.",
+                        ident,
+                        file_path.display()
+                    ),
+                ));
+            }
+
+            let mut results: Vec<String> = Vec::new();
+            for (item, style) in visitor.results {
+                let excerpt = source_excerpt(&source_code, &item, style)?;
+                let formatted = fix_indentation(excerpt);
+                let example = into_example(formatted.as_str(), &langs);
+                results.push(example);
+            }
+            results.join("\n")
+        } else {
+            into_example(source_code.as_str(), &langs)
         };
-        visitor.visit_file(&source_file);
-        if visitor.results.is_empty() {
-            return Err(Error::new(
-                ident.span(),
-                format!(
-                    "Could not find docify export item '{}' in '{}'.",
-                    ident,
-                    file_path.display(),
-                ),
-            ));
-        }
-        let mut results: Vec<String> = Vec::new();
-        for (item, style) in visitor.results {
-            let excerpt = source_excerpt(&source_code, &item, style)?;
-            let formatted = fix_indentation(excerpt);
-            let example = into_example(formatted.as_str(), &langs);
-            results.push(example);
-        }
-        results.join("\n")
-    } else {
-        into_example(source_code.as_str(), &langs)
-    };
-    Ok(output)
-}
 
+        Ok(output)
+    }
+}
 /// Internal implementation behind [`macro@embed`].
 fn embed_internal(
     tokens: impl Into<TokenStream2>,
