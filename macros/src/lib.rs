@@ -11,7 +11,6 @@ use std::{
     cmp::min,
     collections::HashMap,
     fmt::Display,
-    fmt::Display,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -524,10 +523,6 @@ fn export_internal(
 /// Output should match `rustfmt` output exactly.
 #[proc_macro]
 pub fn embed(tokens: TokenStream) -> TokenStream {
-    match embed_internal(
-        tokens,
-        vec![MarkdownLanguage::Rust, MarkdownLanguage::Ignore],
-    ) {
     match embed_internal(
         tokens,
         vec![MarkdownLanguage::Rust, MarkdownLanguage::Ignore],
@@ -1329,7 +1324,7 @@ fn embed_internal_str(
             })?;
 
             let formatted_content = fix_indentation(&content);
-            let output = into_example(&formatted_content, lang);
+            let output = into_example(&formatted_content, &langs);
             return Ok(output);
         }
 

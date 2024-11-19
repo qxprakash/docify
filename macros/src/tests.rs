@@ -1,8 +1,4 @@
 use super::*;
-use proc_macro2::TokenStream as TokenStream2;
-use std::fs;
-use std::path::PathBuf;
-use tempfile::TempDir;
 
 #[test]
 fn test_export_basic_parsing_valid() {
