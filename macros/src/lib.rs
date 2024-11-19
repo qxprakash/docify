@@ -10,6 +10,7 @@ use regex::Regex;
 use std::{
     cmp::min,
     collections::HashMap,
+    fmt::Display,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -522,7 +523,10 @@ fn export_internal(
 /// Output should match `rustfmt` output exactly.
 #[proc_macro]
 pub fn embed(tokens: TokenStream) -> TokenStream {
-    match embed_internal(tokens, MarkdownLanguage::Ignore) {
+    match embed_internal(
+        tokens,
+        vec![MarkdownLanguage::Rust, MarkdownLanguage::Ignore],
+    ) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -535,7 +539,7 @@ pub fn embed(tokens: TokenStream) -> TokenStream {
 /// [`docify::embed!(..)`](`macro@embed`) also apply to this macro.
 #[proc_macro]
 pub fn embed_run(tokens: TokenStream) -> TokenStream {
-    match embed_internal(tokens, MarkdownLanguage::Blank) {
+    match embed_internal(tokens, vec![MarkdownLanguage::Blank]) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }
@@ -1250,7 +1254,10 @@ fn source_excerpt<'a, T: ToTokens>(
         .join("\n"))
 }
 
-fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<String> {
+fn embed_internal_str(
+    tokens: impl Into<TokenStream2>,
+    langs: Vec<MarkdownLanguage>,
+) -> Result<String> {
     let args: EmbedArgs = parse2::<EmbedArgs>(tokens.into())?;
 
     // get the root of the crate
@@ -1326,7 +1333,7 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
         })?;
 
         let formatted_content = fix_indentation(&extracted_content);
-        let output: String = into_example(&formatted_content, lang);
+        let output: String = into_example(&formatted_content, &langs);
 
         Ok(output)
     } else {
@@ -1367,20 +1374,23 @@ fn embed_internal_str(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -
             for (item, style) in visitor.results {
                 let excerpt = source_excerpt(&source_code, &item, style)?;
                 let formatted = fix_indentation(excerpt);
-                let example = into_example(formatted.as_str(), lang);
+                let example = into_example(formatted.as_str(), &langs);
                 results.push(example);
             }
             results.join("\n")
         } else {
-            into_example(source_code.as_str(), lang)
+            into_example(source_code.as_str(), &langs)
         };
 
         Ok(output)
     }
 }
 /// Internal implementation behind [`macro@embed`].
-fn embed_internal(tokens: impl Into<TokenStream2>, lang: MarkdownLanguage) -> Result<TokenStream2> {
-    let output = embed_internal_str(tokens, lang)?;
+fn embed_internal(
+    tokens: impl Into<TokenStream2>,
+    langs: Vec<MarkdownLanguage>,
+) -> Result<TokenStream2> {
+    let output = embed_internal_str(tokens, langs)?;
     Ok(quote!(#output))
 }
 
