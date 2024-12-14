@@ -70,7 +70,7 @@ fn test_compile_markdown_valid() {
             .to_string(),
         "\"# This is a markdown file\\n\\n```rust\\nstruct \
         Something;\\n```\\n<!-- this is a comment -->\\n\\n`\
-        ``rust\\nfn some_fn() {\\n    println!(\\\"foo\\\");\
+        ``rust,ignore\\nfn some_fn() {\\n    println!(\\\"foo\\\");\
         \\n}\\n```\\n\\nSome text this is some text\\n\""
     );
 }
@@ -100,7 +100,7 @@ fn test_compile_markdown_source_valid() {
         "this is some markdown\n\
         this is some more markdown\n\
         # this is a title\n\
-        ```rust\n\
+        ```rust,ignore\n\
         fn some_fn() {\n    \
             println!(\"foo\");\n\
         }\n\

@@ -905,17 +905,36 @@ enum MarkdownLanguage {
     Blank,
 }
 
-/// Converts a source string to a codeblocks wrapped example
-fn into_example(st: &str, lang: MarkdownLanguage) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    match lang {
-        MarkdownLanguage::Ignore => lines.push(String::from("```ignore")),
-        MarkdownLanguage::Rust => lines.push(String::from("```rust")),
-        MarkdownLanguage::Blank => lines.push(String::from("```")),
+impl Display for MarkdownLanguage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MarkdownLanguage::Ignore => write!(f, "ignore"),
+            MarkdownLanguage::Rust => write!(f, "rust"),
+            MarkdownLanguage::Blank => write!(f, ""),
+        }
     }
+}
+
+/// Converts a source string to a codeblocks wrapped example
+fn into_example(st: &str, langs: &Vec<MarkdownLanguage>) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    // Add the markdown languages (can be more than one, or none)
+    let mut lang_line = String::from("```");
+    lang_line.push_str(
+        langs
+            .iter()
+            .map(|lang| lang.to_string())
+            .collect::<Vec<String>>()
+            .join(",")
+            .as_str(),
+    );
+    lines.push(lang_line);
+
     for line in st.lines() {
         lines.push(String::from(line));
     }
+
     lines.push(String::from("```"));
     lines.join("\n")
 }
@@ -1305,7 +1324,7 @@ fn embed_internal_str(
             })?;
 
             let formatted_content = fix_indentation(&content);
-            let output = into_example(&formatted_content, lang);
+            let output = into_example(&formatted_content, &langs);
             return Ok(output);
         }
 
@@ -1606,7 +1625,10 @@ fn compile_markdown_source<S: AsRef<str>>(source: S) -> Result<String> {
         let comment = &orig_comment[4..(orig_comment.len() - 3)].trim();
         if comment.starts_with("docify") {
             let args = parse2::<EmbedCommentCall>(comment.parse()?)?.args;
-            let compiled = embed_internal_str(args.to_token_stream(), MarkdownLanguage::Rust)?;
+            let compiled = embed_internal_str(
+                args.to_token_stream(),
+                vec![MarkdownLanguage::Rust, MarkdownLanguage::Ignore],
+            )?;
             output.push(compiled);
         } else {
             output.push(String::from(orig_comment));
