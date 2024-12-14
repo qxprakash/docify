@@ -89,8 +89,8 @@ fn fix_leading_indentation<S: AsRef<str>>(source: S) -> String {
 fn fix_indentation<S: AsRef<str>>(source: S) -> String {
     let source = source.as_ref();
     // let source = fix_first_line_indentation(source);
-    let source = fix_leading_indentation(source);
-    source
+
+    fix_leading_indentation(source)
 }
 
 fn caller_crate_root() -> Option<PathBuf> {
@@ -113,7 +113,7 @@ fn caller_crate_root() -> Option<PathBuf> {
         if !file_name.eq_ignore_ascii_case("Cargo.toml") {
             continue;
         }
-        let Ok(cargo_toml) = std::fs::read_to_string(&entry.path()) else {
+        let Ok(cargo_toml) = std::fs::read_to_string(entry.path()) else {
             continue;
         };
         let Ok(table) = Table::from_str(cargo_toml.as_str()) else {
@@ -149,7 +149,7 @@ fn prettify_path<P: AsRef<Path>>(path: P) -> PathBuf {
         .collect::<PathBuf>()
 }
 
-const DOCIFYING: &'static str = "   Docifying ";
+const DOCIFYING: &str = "   Docifying ";
 
 /// Tries to write the specified string to the terminal in green+bold. Falls back to normal
 /// `print!()`. Function is infallible.
@@ -283,7 +283,7 @@ impl AttributedItem for ImplItem {
             ImplItem::Type(impl_item_type) => &impl_item_type.attrs,
             ImplItem::Macro(impl_item_macro) => &impl_item_macro.attrs,
             // ImplItem::Verbatim(impl_item_verbatim) => &EMPTY,
-            _ => &EMPTY,
+            _ => EMPTY,
         }
     }
 
@@ -308,7 +308,7 @@ impl AttributedItem for TraitItem {
             TraitItem::Type(trait_item_type) => &trait_item_type.attrs,
             TraitItem::Macro(trait_item_macro) => &trait_item_macro.attrs,
             // TraitItem::Verbatim(trait_item_verbatim) => &EMPTY,
-            _ => &EMPTY,
+            _ => EMPTY,
         }
     }
 
@@ -1188,7 +1188,7 @@ impl From<&String> for CompressedString {
 }
 
 /// Responsible for retrieving the "contents" of an item, used by `#[docify::export_contents]`
-fn get_content_tokens<'a>(item: &'a Item) -> TokenStream2 {
+fn get_content_tokens(item: &Item) -> TokenStream2 {
     match item {
         // Item::Const(item_const) => item_const.to_token_stream(),
         // Item::Enum(item_enum) => item_enum.to_token_stream(),
@@ -1457,9 +1457,8 @@ fn compile_markdown_internal(tokens: impl Into<TokenStream2>) -> Result<TokenStr
             if cfg!(not(test)) {
                 write_green(DOCIFYING);
                 println!(
-                    "{} {} {}",
-                    prettify_path(&input_path).display(),
-                    "=>", // TODO: fancy arrow
+                    "{} => {}",
+                    prettify_path(&input_path).display(), // TODO: fancy arrow
                     prettify_path(&output).display(),
                 );
             }
@@ -1555,13 +1554,12 @@ fn compile_markdown_dir<P1: AsRef<Path>, P2: AsRef<Path>>(
         })
     {
         let src_path = entry.path();
-        let dest_path = transpose_subpath(&input_dir, &src_path, &output_dir);
+        let dest_path = transpose_subpath(&input_dir, src_path, &output_dir);
         if cfg!(not(test)) {
             write_green(DOCIFYING);
             println!(
-                "{} {} {}",
-                prettify_path(&src_path).display(),
-                "=>", // TODO: fancy arrow
+                "{} => {}",
+                prettify_path(src_path).display(), // TODO: fancy arrow
                 prettify_path(&dest_path).display(),
             );
         }
