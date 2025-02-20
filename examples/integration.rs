@@ -92,6 +92,9 @@ pub struct ExportContentConst;
 #[doc = docify::embed!("examples/samples.rs", inner_mod2)]
 pub struct NestedExports;
 
+#[doc = docify::embed!(git: "https://github.com/sam0x17/docify", path: "examples/samples.rs", item: MyCoolStruct)]
+pub struct GitEmbeds;
+
 /// This will compile all markdown files in the `markdown_source` directory to `markdown_bin`
 /// when `cargo doc` is run, handling any doc embed calls as it goes
 #[cfg(doc)]
