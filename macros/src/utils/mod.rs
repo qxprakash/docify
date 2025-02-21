@@ -3,11 +3,11 @@ use proc_macro2::Span;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
-use syn::visit::Visit;
 use syn::Error;
 use syn::Result;
+use syn::visit::Visit;
 
-use crate::{caller_crate_root, source_excerpt, ItemVisitor};
+use crate::{ItemVisitor, caller_crate_root, source_excerpt};
 
 pub fn extract_item_from_file(file_path: &Path, item_ident: &str) -> Result<String> {
     let source_code = fs::read_to_string(file_path).map_err(|e| {

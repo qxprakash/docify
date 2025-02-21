@@ -4,7 +4,7 @@ use derive_syn_parse::Parse;
 use once_cell::sync::Lazy;
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use regex::Regex;
 
 use std::{
@@ -19,11 +19,11 @@ use std::{
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::{
+    AttrStyle, Attribute, Error, Ident, ImplItem, Item, LitStr, Meta, Result, Token, TraitItem,
     parse2,
     spanned::Spanned,
     token::Paren,
     visit::{self, Visit},
-    AttrStyle, Attribute, Error, Ident, ImplItem, Item, LitStr, Meta, Result, Token, TraitItem,
 };
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use toml::{Table, Value};
@@ -1481,7 +1481,7 @@ fn compile_markdown_internal(tokens: impl Into<TokenStream2>) -> Result<TokenStr
         if input_path.is_dir() {
             return Err(Error::new(
                 args.input.span(),
-                "Only individual files are supported with no output path, you specified a directory."
+                "Only individual files are supported with no output path, you specified a directory.",
             ));
         }
         let Ok(source) = fs::read_to_string(&input_path) else {
