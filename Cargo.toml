@@ -3,8 +3,8 @@ members = ["macros"]
 
 [package]
 name = "docify"
-version = "0.3.0"
-edition = "2021"
+version = "0.4.0"
+edition = "2024"
 authors = ["sam0x17"]
 license = "MIT"
 keywords = ["docify", "compile-time", "macro", "docs", "embed"]
@@ -14,7 +14,7 @@ repository = "https://github.com/sam0x17/docify"
 description = "Docify allows you to live-embed at compile time pieces of code from throughout your project as rust doc examples."
 
 [dependencies]
-docify_macros = { path = "macros", version = "0.3.0" }
+docify_macros = { path = "macros", version = "0.4.0" }
 
 [dev-dependencies]
 proc-utils = "0"
